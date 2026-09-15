@@ -17,6 +17,7 @@
     <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-C8F169?style=flat-square&labelColor=172019"></a>
     <img alt="Status: pre-release" src="https://img.shields.io/badge/status-pre--release-E9B949?style=flat-square&labelColor=172019">
     <a href="https://tauri.app"><img alt="Built with Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white"></a>
+    <a href="https://ko-fi.com/maticcukmikeln"><img alt="Support on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
   </p>
 </div>
 
