@@ -4,38 +4,64 @@ use crate::{
     models::{MediaFormat, MediaInfo, PlaylistItem, SubtitleTrack},
 };
 use serde_json::Value;
-use std::{path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command, thread, time::Duration};
+
+const ANALYSIS_ATTEMPTS: u32 = 3;
+
+fn is_temporary_youtube_reload_error(stderr: &str) -> bool {
+    stderr
+        .to_ascii_lowercase()
+        .contains("the page needs to be reloaded")
+}
 
 pub struct YtDlpExtractor {
     binary: PathBuf,
+    deno: Option<PathBuf>,
 }
 impl YtDlpExtractor {
-    pub fn new(binary: PathBuf) -> Self {
-        Self { binary }
+    pub fn new(binary: PathBuf, deno: Option<PathBuf>) -> Self {
+        Self { binary, deno }
     }
 }
 
 impl MediaExtractor for YtDlpExtractor {
     fn analyze(&self, url: &str) -> Result<MediaInfo> {
         validate_url(url)?;
-        let mut args = vec![
-            "--dump-single-json",
-            "--no-warnings",
-            "--no-download",
-            "--playlist-end",
-            "100",
+        let mut args: Vec<String> = vec![
+            "--ignore-config".into(),
+            "--dump-single-json".into(),
+            "--no-warnings".into(),
+            "--no-download".into(),
+            "--extractor-retries".into(),
+            "3".into(),
+            "--retry-sleep".into(),
+            "extractor:linear=0.5:1.5:0.5".into(),
         ];
+        args.extend(crate::extractors::js_runtime_args(self.deno.as_deref()));
+        args.extend(["--playlist-end".into(), "100".into()]);
         if is_youtube_mix_url(url) {
-            args.push("--no-playlist");
+            args.push("--no-playlist".into());
         }
-        args.extend(["--", url]);
-        let output = Command::new(&self.binary)
-            .args(args)
-            .output()
-            .map_err(|e| PullyError::DependencyMissing(format!("Could not start yt-dlp: {e}")))?;
-        if !output.status.success() {
-            return Err(map_process_error(&String::from_utf8_lossy(&output.stderr)));
-        }
+        args.extend(["--".into(), url.into()]);
+        let mut attempt = 0;
+        let output = loop {
+            attempt += 1;
+            let output = Command::new(&self.binary)
+                .args(&args)
+                .output()
+                .map_err(|e| {
+                    PullyError::DependencyMissing(format!("Could not start yt-dlp: {e}"))
+                })?;
+            if output.status.success() {
+                break output;
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if attempt < ANALYSIS_ATTEMPTS && is_temporary_youtube_reload_error(&stderr) {
+                thread::sleep(Duration::from_millis(300 * u64::from(attempt)));
+                continue;
+            }
+            return Err(map_process_error(&stderr));
+        };
         let value: Value = serde_json::from_slice(&output.stdout).map_err(|e| {
             PullyError::Internal(format!("yt-dlp returned unreadable metadata: {e}"))
         })?;
@@ -188,5 +214,15 @@ mod tests {
         let info = parse_media_info(&value, "https://example.com/video.mp4").unwrap();
         assert!(info.formats[0].has_video);
         assert!(!info.formats[0].has_audio);
+    }
+
+    #[test]
+    fn recognizes_the_temporary_youtube_reload_response() {
+        assert!(is_temporary_youtube_reload_error(
+            "ERROR: [youtube] abc: The page needs to be reloaded."
+        ));
+        assert!(!is_temporary_youtube_reload_error(
+            "ERROR: This video is private"
+        ));
     }
 }

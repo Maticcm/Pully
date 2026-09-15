@@ -52,6 +52,11 @@ pub fn map_process_error(stderr: &str) -> PullyError {
         ))
     } else if lower.contains("permission denied") || lower.contains("access is denied") {
         PullyError::PermissionDenied(stderr.to_string())
+    } else if lower.contains("the page needs to be reloaded") {
+        PullyError::ProcessFailed(
+            "YouTube returned a temporary reload response after several attempts. Try the link again in a moment."
+                .into(),
+        )
     } else {
         PullyError::ProcessFailed(stderr.to_string())
     }
@@ -72,5 +77,13 @@ mod tests {
         assert!(map_process_error("No space left on device")
             .to_string()
             .contains("disk space"));
+    }
+
+    #[test]
+    fn maps_youtube_reload_failures_to_a_retryable_message() {
+        let error =
+            map_process_error("ERROR: [youtube] abc: The page needs to be reloaded.").to_string();
+        assert!(error.contains("temporary reload response"));
+        assert!(error.contains("Try the link again"));
     }
 }

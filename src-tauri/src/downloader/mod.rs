@@ -87,6 +87,7 @@ struct ToolPaths {
     yt_dlp: PathBuf,
     spotiflac: Option<PathBuf>,
     ffmpeg: Option<PathBuf>,
+    deno: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -96,7 +97,12 @@ pub struct DownloadManager {
 }
 
 impl DownloadManager {
-    pub fn new(yt_dlp: PathBuf, spotiflac: Option<PathBuf>, ffmpeg: Option<PathBuf>) -> Self {
+    pub fn new(
+        yt_dlp: PathBuf,
+        spotiflac: Option<PathBuf>,
+        ffmpeg: Option<PathBuf>,
+        deno: Option<PathBuf>,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 jobs: HashMap::new(),
@@ -108,6 +114,7 @@ impl DownloadManager {
                 yt_dlp,
                 spotiflac,
                 ffmpeg,
+                deno,
             })),
         }
     }
@@ -120,12 +127,14 @@ impl DownloadManager {
         yt_dlp: PathBuf,
         spotiflac: Option<PathBuf>,
         ffmpeg: Option<PathBuf>,
+        deno: Option<PathBuf>,
     ) {
         if let Ok(mut paths) = self.paths.lock() {
             *paths = ToolPaths {
                 yt_dlp,
                 spotiflac,
                 ffmpeg,
+                deno,
             };
         }
     }
@@ -138,6 +147,7 @@ impl DownloadManager {
                 yt_dlp: PathBuf::from("yt-dlp"),
                 spotiflac: None,
                 ffmpeg: None,
+                deno: None,
             })
     }
 
@@ -328,7 +338,8 @@ impl DownloadManager {
             ExistingFileBehavior::Skip => "--no-overwrites",
             ExistingFileBehavior::Overwrite => "--force-overwrites",
         };
-        let mut args: Vec<String> = vec!["--newline".into(), "--no-colors".into(), existing_file_arg.into(), "--windows-filenames".into(), "--ignore-errors".into(), "--progress".into(), "--progress-template".into(), "download:PULLY_PROGRESS|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress._speed_str)s|%(progress._eta_str)s".into(), "--progress-template".into(), "postprocess:PULLY_PROCESSING".into(), "--print".into(), "after_move:PULLY_FILE|%(filepath)s".into(), "-P".into(), format!("temp:{}", temp_directory.to_string_lossy()), "-o".into(), output_template.to_string_lossy().into_owned()];
+        let mut args: Vec<String> = vec!["--ignore-config".into(), "--newline".into(), "--no-colors".into(), existing_file_arg.into(), "--windows-filenames".into(), "--ignore-errors".into(), "--extractor-retries".into(), "3".into(), "--retry-sleep".into(), "extractor:linear=0.5:1.5:0.5".into(), "--progress".into(), "--progress-template".into(), "download:PULLY_PROGRESS|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress._speed_str)s|%(progress._eta_str)s".into(), "--progress-template".into(), "postprocess:PULLY_PROCESSING".into(), "--print".into(), "after_move:PULLY_FILE|%(filepath)s".into(), "-P".into(), format!("temp:{}", temp_directory.to_string_lossy()), "-o".into(), output_template.to_string_lossy().into_owned()];
+        args.extend(extractors::js_runtime_args(paths.deno.as_deref()));
         if let Some(ffmpeg) = &paths.ffmpeg {
             if let Some(parent) = ffmpeg.parent() {
                 args.extend([

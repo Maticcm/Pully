@@ -25,6 +25,11 @@ pub struct Dependencies {
     /// Optional. Only needed for Spotify links — see `extractors::spotiflac`
     /// for the CLI contract Pully expects from this binary.
     pub spotiflac: Option<PathBuf>,
+    /// Optional JS runtime yt-dlp uses to solve YouTube's signature
+    /// challenges. When found, Pully passes its exact path to yt-dlp
+    /// (`--js-runtimes deno:<path>`) instead of naming a runtime and hoping
+    /// it's on PATH — see `extractors::js_runtime_args`.
+    pub deno: Option<PathBuf>,
     /// Pully's own native-messaging host, built alongside the main app (see
     /// `src/bin/pully-native-host.rs`) — not a user-installed tool.
     pub native_host: Option<PathBuf>,
@@ -89,6 +94,7 @@ pub fn discover_dependencies(app: &AppHandle) -> Dependencies {
         yt_dlp: locate(app, "yt-dlp"),
         ffmpeg: locate(app, "ffmpeg"),
         spotiflac: locate(app, "spotiflac"),
+        deno: locate(app, "deno"),
         native_host: locate(app, "pully-native-host"),
     }
 }
@@ -107,9 +113,12 @@ pub async fn analyze_url(
             let binary = snapshot.yt_dlp.clone().ok_or_else(|| {
                 PullyError::DependencyMissing("yt-dlp is missing or corrupted.".into())
             })?;
-            tauri::async_runtime::spawn_blocking(move || extractors::yt_dlp(&binary).analyze(&url))
-                .await
-                .map_err(|e| PullyError::Internal(e.to_string()))?
+            let deno = snapshot.deno.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                extractors::yt_dlp(&binary, deno.as_deref()).analyze(&url)
+            })
+            .await
+            .map_err(|e| PullyError::Internal(e.to_string()))?
         }
         extractors::Provider::SpotiFlac => {
             let binary = snapshot.spotiflac.clone().ok_or_else(|| {
@@ -185,6 +194,7 @@ pub async fn install_dependencies(
             .unwrap_or_else(|| PathBuf::from("yt-dlp")),
         fresh.spotiflac.clone(),
         fresh.ffmpeg.clone(),
+        fresh.deno.clone(),
     );
     let snapshot = dependency_info_snapshot(&fresh);
     if let Ok(mut guard) = dependencies.lock() {

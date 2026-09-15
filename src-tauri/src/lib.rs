@@ -96,6 +96,7 @@ pub fn run() {
                 yt_dlp,
                 dependencies.spotiflac.clone(),
                 dependencies.ffmpeg.clone(),
+                dependencies.deno.clone(),
             ));
             if let Some(host) = &dependencies.native_host {
                 browser_integration::native_messaging::register(host);

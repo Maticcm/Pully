@@ -76,8 +76,23 @@ pub fn is_youtube_mix_url(value: &str) -> bool {
     has_video && is_mix
 }
 
-pub fn yt_dlp(path: &Path) -> yt_dlp::YtDlpExtractor {
-    yt_dlp::YtDlpExtractor::new(path.to_path_buf())
+pub fn yt_dlp(path: &Path, deno: Option<&Path>) -> yt_dlp::YtDlpExtractor {
+    yt_dlp::YtDlpExtractor::new(path.to_path_buf(), deno.map(Path::to_path_buf))
+}
+
+/// Builds the `--js-runtimes` argument yt-dlp needs to solve YouTube's JS
+/// challenges, pointed explicitly at Pully's own bundled/discovered Deno
+/// binary when one was found. A fresh machine with neither Node nor Deno on
+/// PATH still works this way, instead of yt-dlp being told to look for a
+/// runtime ("node") by name alone and never finding the Deno binary Pully
+/// actually shipped next to it. Falls back to yt-dlp's own runtime
+/// auto-detection (no flag at all) when no Deno binary is known, so a dev
+/// machine with Node on PATH keeps working too.
+pub fn js_runtime_args(deno: Option<&Path>) -> Vec<String> {
+    match deno {
+        Some(path) => vec!["--js-runtimes".into(), format!("deno:{}", path.display())],
+        None => Vec::new(),
+    }
 }
 
 pub fn spotiflac(path: &Path) -> spotiflac::SpotiFlacExtractor {
@@ -87,6 +102,23 @@ pub fn spotiflac(path: &Path) -> spotiflac::SpotiFlacExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn js_runtime_args_points_at_the_bundled_deno_binary() {
+        let path = std::path::Path::new("C:\\Program Files\\Pully\\binaries\\deno.exe");
+        assert_eq!(
+            js_runtime_args(Some(path)),
+            vec![
+                "--js-runtimes".to_string(),
+                "deno:C:\\Program Files\\Pully\\binaries\\deno.exe".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn js_runtime_args_is_empty_without_a_known_deno_binary() {
+        assert!(js_runtime_args(None).is_empty());
+    }
+
     #[test]
     fn accepts_web_urls_only() {
         assert!(validate_url("https://example.com/v").is_ok());
