@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pully",
+  "version": "0.1.0",
+  "identifier": "app.pully.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "title": "Pully",
+      "width": 1040,
+      "height": 800,
+      "minWidth": 720,
+      "minHeight": 720,
+      "resizable": true,
+      "fullscreen": false,
+      "decorations": false,
+      "backgroundColor": "#f4f6f1",
+      "dragDropEnabled": false
+    }],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": ["binaries/*"],
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer/windows/hooks.nsh"
+      }
+    }
+  }
+}

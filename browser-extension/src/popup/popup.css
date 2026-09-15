@@ -1,0 +1,227 @@
+/* Mirrors Pully's own design tokens and component shapes (src/styles.css,
+ * src/components/Brand.tsx, src/components/DetectedTabs.tsx) so the popup
+ * reads as part of the same app rather than a bolted-on widget. Values here
+ * are overridden live by Pully's pushed theme (see popup.ts's applyTheme) —
+ * these are just the resting defaults, used before anything's been received
+ * and already matching Pully's own out-of-the-box look. */
+
+@font-face {
+  font-family: "Manrope Variable";
+  src: url("../fonts/manrope-variable.woff2") format("woff2-variations");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  --font-ui: "Manrope Variable", "Manrope", "Segoe UI", system-ui, sans-serif;
+  --color-accent: 200 241 105;
+  --color-accent-foreground: 25 34 28;
+  --color-canvas: 244 246 241;
+  --color-surface: 255 255 255;
+  --color-ink: 25 34 28;
+  --color-muted: 107 113 102;
+  --border: rgb(0 0 0 / 0.08);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: 14 18 15;
+    --color-surface: 23 28 24;
+    --color-ink: 238 242 234;
+    --color-muted: 154 161 146;
+    --border: rgb(255 255 255 / 0.1);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  width: 288px;
+  font: 13px/1.45 var(--font-ui);
+  color: rgb(var(--color-ink));
+  background: rgb(var(--color-canvas));
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 14px;
+  background: rgb(var(--color-surface));
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-foreground));
+  flex-shrink: 0;
+}
+.logo svg {
+  width: 15px;
+  height: 15px;
+}
+.wordmark {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.tab-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 12px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgb(var(--color-surface));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.favicon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: rgb(var(--color-ink) / 0.045);
+  color: rgb(var(--color-ink) / 0.35);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.favicon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.favicon svg {
+  width: 16px;
+  height: 16px;
+}
+.tab-text {
+  min-width: 0;
+  flex: 1;
+}
+.title {
+  display: block;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  min-width: 0;
+}
+.domain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--color-muted));
+}
+.badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(var(--color-ink) / 0.05);
+  color: rgb(var(--color-muted));
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+button {
+  font: inherit;
+  border: none;
+  cursor: pointer;
+  transition: filter 140ms var(--ease-out), transform 140ms var(--ease-out), background-color 140ms var(--ease-out), border-color 140ms var(--ease-out);
+}
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: rgb(var(--color-ink) / 0.55);
+}
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.icon-button:hover:not(:disabled) {
+  background: rgb(var(--color-ink) / 0.05);
+  color: rgb(var(--color-ink));
+}
+.pill-button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-foreground));
+  font-weight: 800;
+  box-shadow: 0 4px 14px rgb(var(--color-accent) / 0.22);
+}
+.pill-button svg {
+  width: 14px;
+  height: 14px;
+}
+.pill-button:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgb(var(--color-surface));
+  border-top: 1px solid var(--border);
+  color: rgb(var(--color-muted));
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(var(--color-muted));
+  transition: background-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
+}
+.dot-on {
+  background: rgb(var(--color-accent));
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.2);
+}
+.dot-off {
+  background: #f87171;
+}

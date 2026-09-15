@@ -1,0 +1,12 @@
+node_modules
+dist
+*.tsbuildinfo
+src-tauri/target
+src-tauri/binaries
+src-tauri/gen
+*.log
+.DS_Store
+
+# Private key used only to keep the browser extension's id stable across
+# rebuilds — never commit it. See docs/BROWSER_INTEGRATION.md.
+browser-extension/keys/*.pem
