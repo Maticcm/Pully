@@ -89,8 +89,6 @@ pub fn run() {
             app.manage(PendingUrl(Mutex::new(pending)));
             app.manage(TraySettings::default());
 
-            browser_integration::launcher::record_app_path();
-
             let dependencies = discover_dependencies(app.handle());
             let yt_dlp = dependencies
                 .yt_dlp
@@ -102,9 +100,7 @@ pub fn run() {
                 dependencies.ffmpeg.clone(),
                 dependencies.deno.clone(),
             ));
-            if let Some(host) = &dependencies.native_host {
-                browser_integration::native_messaging::register(host);
-            }
+            let native_host = dependencies.native_host.clone();
             app.manage(Mutex::new(dependencies));
 
             let browser_integration = BrowserIntegration::default();
@@ -181,6 +177,15 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Registry helper processes and disk writes must not delay the
+            // event loop. All command and browser state is ready first.
+            tauri::async_runtime::spawn_blocking(move || {
+                browser_integration::launcher::record_app_path();
+                if let Some(host) = native_host {
+                    browser_integration::native_messaging::register(&host);
+                }
+            });
 
             Ok(())
         })

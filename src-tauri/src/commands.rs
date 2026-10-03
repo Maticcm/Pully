@@ -170,9 +170,22 @@ fn dependency_info_snapshot(dependencies: &Dependencies) -> DependencyInfo {
 }
 
 #[tauri::command]
-pub fn dependency_info(dependencies: State<'_, Mutex<Dependencies>>) -> DependencyInfo {
-    let guard = dependencies.lock().unwrap();
-    dependency_info_snapshot(&guard)
+pub async fn dependency_info(
+    dependencies: State<'_, Mutex<Dependencies>>,
+) -> Result<DependencyInfo> {
+    let snapshot = dependencies
+        .lock()
+        .map_err(|_| PullyError::Internal("Dependency state unavailable.".into()))?
+        .clone();
+    inspect_dependencies(snapshot).await
+}
+
+async fn inspect_dependencies(dependencies: Dependencies) -> Result<DependencyInfo> {
+    // Executable probes can take seconds on a cold start. Run them outside
+    // the UI and async runtime threads, without holding the shared state.
+    tauri::async_runtime::spawn_blocking(move || dependency_info_snapshot(&dependencies))
+        .await
+        .map_err(|error| PullyError::Internal(error.to_string()))
 }
 
 /// Downloads whichever of yt-dlp/FFmpeg aren't already found, into Pully's
@@ -207,7 +220,7 @@ pub async fn install_dependencies(
         fresh.ffmpeg.clone(),
         fresh.deno.clone(),
     );
-    let snapshot = dependency_info_snapshot(&fresh);
+    let snapshot = inspect_dependencies(fresh.clone()).await?;
     if let Ok(mut guard) = dependencies.lock() {
         *guard = fresh;
     }
@@ -224,7 +237,7 @@ pub async fn install_spotiflac(
         .await
         .map_err(PullyError::Internal)?;
     let fresh = discover_dependencies(&app);
-    let snapshot = dependency_info_snapshot(&fresh);
+    let snapshot = inspect_dependencies(fresh.clone()).await?;
     if snapshot.spoti_flac.is_none() {
         return Err(PullyError::DependencyMissing(
             "SpotiFLAC was installed but could not be detected.".into(),
@@ -430,4 +443,49 @@ pub async fn push_theme(app: AppHandle, theme: ThemeSnapshot) -> Result<()> {
     )
     .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_dependency_probe_keeps_the_runtime_responsive() {
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join(if cfg!(windows) {
+            "slow-tool.cmd"
+        } else {
+            "slow-tool"
+        });
+        #[cfg(windows)]
+        std::fs::write(
+            &binary,
+            "@echo off\r\nping -n 2 127.0.0.1 >nul\r\necho test-version\r\n",
+        )
+        .unwrap();
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&binary, "#!/bin/sh\nsleep 1\necho test-version\n").unwrap();
+            std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let dependencies = Dependencies {
+            yt_dlp: Some(binary),
+            ffmpeg: None,
+            spotiflac: None,
+            deno: None,
+            native_host: None,
+        };
+        let started = Instant::now();
+        let heartbeat = async {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            assert!(
+                started.elapsed() < Duration::from_millis(500),
+                "The slow executable blocked unrelated async work"
+            );
+        };
+        let (result, ()) = tokio::join!(inspect_dependencies(dependencies), heartbeat);
+        assert_eq!(result.unwrap().yt_dlp.as_deref(), Some("test-version"));
+    }
 }

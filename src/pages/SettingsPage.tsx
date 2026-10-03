@@ -155,7 +155,7 @@ export function SettingsPage({ settings, dependencies, installingSpotiFlac, spot
         </div>
       </SettingsGrid>}
       {section === "status" && <SettingsGrid title="Installed components" description="Pully checks these local executables before starting work.">
-        <StatusRow label="Pully" value={dependencies?.pully ?? "0.1.1"} ready />
+        <StatusRow label="Pully" value={dependencies?.pully ?? "Checking..."} ready />
         <div className="sm:col-span-2 rounded-xl border border-black/[.06] px-4 py-3 dark:border-white/[.08]">
           <Toggle checked={draft.autoUpdate} onChange={(value) => update("autoUpdate", value)} label="Install app updates automatically" description="Checks on startup and daily. Installs signed updates after downloads and other work finish."/>
           <div className="mt-3 flex items-center gap-3"><button type="button" className="secondary-button" disabled={["checking", "downloading", "installing"].includes(updateStatus.phase)} onClick={onCheckForUpdates}>Check for updates</button><span className="text-xs text-black/45 dark:text-white/40">{updateStatus.phase === "checking" ? "Checking..." : updateStatus.phase === "current" ? "Pully is up to date" : updateStatus.phase === "waiting" ? `Version ${updateStatus.version} waiting for idle time` : updateStatus.phase === "downloading" ? `Downloading ${updateStatus.version}${updateStatus.progress == null ? "" : ` (${updateStatus.progress}%)`}` : updateStatus.phase === "installing" ? "Installing update..." : updateStatus.phase === "error" ? "Update check or install failed" : ""}</span></div>
