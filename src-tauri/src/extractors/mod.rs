@@ -40,6 +40,15 @@ pub fn is_spotify_url(value: &str) -> bool {
     host == "spotify.com" || host.ends_with(".spotify.com")
 }
 
+pub fn is_youtube_url(value: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(value) else {
+        return false;
+    };
+    parsed.host_str().is_some_and(|host| {
+        host == "youtube.com" || host.ends_with(".youtube.com") || host == "youtu.be"
+    })
+}
+
 pub fn validate_url(value: &str) -> Result<()> {
     let parsed = url::Url::parse(value).map_err(|_| PullyError::InvalidUrl)?;
     if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
@@ -170,5 +179,12 @@ mod tests {
         assert!(!is_youtube_mix_url(
             "https://www.youtube.com/playlist?list=RDG5RpJwCJDqc"
         ));
+    }
+
+    #[test]
+    fn recognizes_youtube_hosts_without_matching_lookalikes() {
+        assert!(is_youtube_url("https://www.youtube.com/watch?v=abc"));
+        assert!(is_youtube_url("https://youtu.be/abc"));
+        assert!(!is_youtube_url("https://youtube.com.evil.test/watch?v=abc"));
     }
 }

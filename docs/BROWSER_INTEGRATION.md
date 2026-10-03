@@ -285,12 +285,9 @@ on a dev machine or an end user's.
 ### Release builds
 
 `scripts/prepare-sidecars.ps1` copies `yt-dlp`/`ffmpeg`/`spotiflac` into
-`src-tauri/binaries/` before `npm run tauri build`. Do the same for the
-native host so the bundled resources (`bundle.resources: ["binaries/*"]`)
-pick it up:
+`src-tauri/binaries/` before `npm run tauri build`. The Windows bundling hook
+copies the freshly built native host into that directory automatically:
 ```powershell
-cargo build --release --bin pully-native-host --manifest-path src-tauri/Cargo.toml
-Copy-Item src-tauri/target/release/pully-native-host.exe src-tauri/binaries/pully-native-host.exe -Force
 .\scripts\prepare-sidecars.ps1 -YtDlp <path> -Ffmpeg <path>
 npm run tauri build
 ```

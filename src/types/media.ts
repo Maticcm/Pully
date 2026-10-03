@@ -8,6 +8,7 @@ export type MediaFormat = {
   videoCodec?: string;
   audioCodec?: string;
   fileSize?: number;
+  protocol?: string;
   note?: string;
   hasVideo: boolean;
   hasAudio: boolean;
@@ -72,7 +73,7 @@ export type DownloadProgress = {
 
 export type DependencyInfo = { pully: string; ytDlp?: string; ffmpeg?: string; spotiFlac?: string; ready: boolean; issues: string[] };
 
-export type SetupProgress = { tool: "yt-dlp" | "ffmpeg"; percent: number; stage: "downloading" | "extracting" | "done" | "error"; message?: string };
+export type SetupProgress = { tool: "yt-dlp" | "ffmpeg" | "spotiflac"; percent: number; stage: "downloading" | "extracting" | "installing" | "done" | "error"; message?: string };
 
 export type BrowserName = "chrome" | "brave" | "edge" | "other";
 

@@ -1,15 +1,11 @@
-//! Downloads yt-dlp and FFmpeg into Pully's own app-data folder when they
-//! aren't already found elsewhere (bundled sidecar, PATH, or a previous
-//! download here). Never runs implicitly — only in response to the user
-//! clicking "Install automatically" on the missing-dependency banner (see
-//! `commands::install_dependencies`), so Pully's documented "no network
-//! calls you didn't ask for" stance (`PRIVACY.md`) stays true.
+//! Installs requested helper tools into Pully's own app-data folder. It runs
+//! only when the user clicks an install button, preserving Pully's documented
+//! no-implicit-network-requests behavior (`docs/PRIVACY.md`).
 //!
-//! SpotiFLAC is deliberately not auto-installed here — see
-//! `docs/SPOTIFLAC.md`. Its maintained lossless CLI is a Python module with
-//! provider extensions, so Pully validates a user-supplied installation
-//! instead of silently installing a Python runtime and third-party providers.
+//! SpotiFLAC has a separate button because it is optional and requires an
+//! existing Python 3 installation. See `docs/SPOTIFLAC.md`.
 
+use crate::process::hidden_command;
 use futures_util::StreamExt;
 use serde::Serialize;
 use std::{fs, io::Write, path::Path, path::PathBuf};
@@ -152,6 +148,91 @@ pub async fn install_missing(
             return Err(format!("FFmpeg: {error}"));
         }
         emit(app, "ffmpeg", 100.0, "done", None);
+    }
+    Ok(())
+}
+
+/// Installs the optional Spotify CLI into an isolated environment owned by
+/// Pully. A system Python is required, but its packages are never modified.
+pub async fn install_spotiflac(app: &AppHandle) -> Result<(), String> {
+    let dir = tools_dir(app).ok_or("Could not resolve Pully's app data directory.")?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+    emit(app, "spotiflac", 0.0, "installing", None);
+    let result = tauri::async_runtime::spawn_blocking(move || install_spotiflac_blocking(&dir))
+        .await
+        .map_err(|e| e.to_string())?;
+    match result {
+        Ok(()) => {
+            emit(app, "spotiflac", 100.0, "done", None);
+            Ok(())
+        }
+        Err(error) => {
+            emit(app, "spotiflac", 0.0, "error", Some(error.clone()));
+            Err(error)
+        }
+    }
+}
+
+fn install_spotiflac_blocking(dir: &Path) -> Result<(), String> {
+    let candidates: &[(&str, &[&str])] = if cfg!(windows) {
+        &[("py", &["-3"]), ("python", &[])]
+    } else {
+        &[("python3", &[]), ("python", &[])]
+    };
+    let (python, prefix) = candidates
+        .iter()
+        .find(|(python, prefix)| {
+            hidden_command(python)
+                .args(*prefix)
+                .arg("--version")
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+        .ok_or("Python 3 was not found. Install Python 3, then try again.")?;
+    let environment = dir.join("spotiflac-env");
+    let create = hidden_command(python)
+        .args(*prefix)
+        .args(["-m", "venv"])
+        .arg(&environment)
+        .output()
+        .map_err(|e| format!("Could not create the SpotiFLAC environment: {e}"))?;
+    if !create.status.success() {
+        return Err(format!(
+            "Could not create the SpotiFLAC environment: {}",
+            String::from_utf8_lossy(&create.stderr).trim()
+        ));
+    }
+    let venv_python = if cfg!(windows) {
+        environment.join("Scripts").join("python.exe")
+    } else {
+        environment.join("bin").join("python")
+    };
+    let install = hidden_command(&venv_python)
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--upgrade",
+            "SpotiFLAC>=4.1.2",
+        ])
+        .output()
+        .map_err(|e| format!("Could not start pip: {e}"))?;
+    if !install.status.success() {
+        return Err(format!(
+            "SpotiFLAC installation failed: {}",
+            String::from_utf8_lossy(&install.stderr).trim()
+        ));
+    }
+    let executable = if cfg!(windows) {
+        environment.join("Scripts").join("spotiflac.exe")
+    } else {
+        environment.join("bin").join("spotiflac")
+    };
+    if !crate::downloader::spotiflac_supports_lossless_contract(&executable) {
+        return Err(
+            "The installed SpotiFLAC CLI did not provide the required lossless options.".into(),
+        );
     }
     Ok(())
 }

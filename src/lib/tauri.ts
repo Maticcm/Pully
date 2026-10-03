@@ -29,4 +29,5 @@ export const api = {
   pushTheme: (theme: ThemeSnapshot) => invoke<void>("push_theme", { theme }),
   setRunInTray: (enabled: boolean) => invoke<void>("set_run_in_tray", { enabled }),
   installDependencies: () => invoke<DependencyInfo>("install_dependencies"),
+  installSpotiFlac: () => invoke<DependencyInfo>("install_spotiflac"),
 };

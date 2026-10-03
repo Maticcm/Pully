@@ -1,6 +1,6 @@
 [package]
 name = "pully"
-version = "0.1.0"
+version = "0.1.1"
 description = "A clean, local media downloader"
 authors = ["Pully contributors"]
 edition = "2021"
@@ -31,7 +31,10 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 tauri-plugin-dialog = "2.7.3"
+tauri-plugin-clipboard-manager = "=2.3.3"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "=2.11.0"
+tauri-plugin-process = "=2.3.0"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "blocking"] }
 futures-util = "0.3"

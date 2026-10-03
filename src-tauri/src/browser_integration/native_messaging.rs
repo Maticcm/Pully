@@ -78,7 +78,7 @@ pub fn register(_host_binary: &Path) {
 #[cfg(windows)]
 mod windows_impl {
     use super::{manifest_json, NATIVE_HOST_ID};
-    use std::{fs, io, path::Path, process::Command};
+    use std::{fs, io, path::Path};
 
     const REGISTRY_HIVES: [&str; 3] = [
         r"Software\Google\Chrome\NativeMessagingHosts",
@@ -98,7 +98,7 @@ mod windows_impl {
             // `reg.exe add` here never touches a shell and every argument is
             // either a fixed literal or a path Pully derived itself — no
             // user- or browser-supplied data ever reaches this command.
-            let status = Command::new("reg.exe")
+            let status = crate::process::hidden_command("reg.exe")
                 .args([
                     "add",
                     &key,

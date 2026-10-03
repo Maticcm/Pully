@@ -37,7 +37,10 @@ pub struct Dependencies {
 
 fn command_version(path: &Path) -> Option<String> {
     for flag in ["--version", "-version"] {
-        let output = Command::new(path).arg(flag).output().ok()?;
+        let output = crate::process::hidden_command(path)
+            .arg(flag)
+            .output()
+            .ok()?;
         if output.status.success() {
             let text = if output.stdout.is_empty() {
                 String::from_utf8_lossy(&output.stderr)
@@ -68,8 +71,13 @@ pub fn discover_dependencies(app: &AppHandle) -> Dependencies {
         // before PATH so a version Pully fetched and knows about wins over
         // some unrelated system installation.
         if let Some(tools) = crate::setup::tools_dir(app) {
-            if name == "spotiflac" && cfg!(windows) {
-                candidates.push(tools.join("spotiflac-env").join("Scripts").join(&exe));
+            if name == "spotiflac" {
+                candidates.push(
+                    tools
+                        .join("spotiflac-env")
+                        .join(if cfg!(windows) { "Scripts" } else { "bin" })
+                        .join(&exe),
+                );
             }
             candidates.push(tools.join(&exe));
         }
@@ -140,7 +148,10 @@ pub async fn analyze_url(
 fn dependency_info_snapshot(dependencies: &Dependencies) -> DependencyInfo {
     let yt = dependencies.yt_dlp.as_deref().and_then(command_version);
     let ff = dependencies.ffmpeg.as_deref().and_then(command_version);
-    let spotiflac = dependencies.spotiflac.as_deref().and_then(command_version);
+    let spotiflac = dependencies.spotiflac.as_deref().and_then(|path| {
+        crate::downloader::spotiflac_supports_lossless_contract(path)
+            .then(|| command_version(path).unwrap_or_else(|| "Installed".into()))
+    });
     let mut issues = Vec::new();
     if yt.is_none() {
         issues.push("yt-dlp was not found.".into());
@@ -197,6 +208,37 @@ pub async fn install_dependencies(
         fresh.deno.clone(),
     );
     let snapshot = dependency_info_snapshot(&fresh);
+    if let Ok(mut guard) = dependencies.lock() {
+        *guard = fresh;
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub async fn install_spotiflac(
+    app: AppHandle,
+    dependencies: State<'_, Mutex<Dependencies>>,
+    manager: State<'_, DownloadManager>,
+) -> Result<DependencyInfo> {
+    crate::setup::install_spotiflac(&app)
+        .await
+        .map_err(PullyError::Internal)?;
+    let fresh = discover_dependencies(&app);
+    let snapshot = dependency_info_snapshot(&fresh);
+    if snapshot.spoti_flac.is_none() {
+        return Err(PullyError::DependencyMissing(
+            "SpotiFLAC was installed but could not be detected.".into(),
+        ));
+    }
+    manager.update_paths(
+        fresh
+            .yt_dlp
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("yt-dlp")),
+        fresh.spotiflac.clone(),
+        fresh.ffmpeg.clone(),
+        fresh.deno.clone(),
+    );
     if let Ok(mut guard) = dependencies.lock() {
         *guard = fresh;
     }

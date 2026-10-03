@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { Check, DownloadCloud, Link2, Moon, Sun, Zap } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +10,7 @@ import { Toast } from "./components/Toast";
 import { useBrowserTabs } from "./hooks/useBrowserTabs";
 import { useDownloads } from "./hooks/useDownloads";
 import { useSettings } from "./hooks/useSettings";
+import { useAppUpdater } from "./hooks/useAppUpdater";
 import { api } from "./lib/tauri";
 import { buildQuickDownloadRequest } from "./lib/formats";
 import { fontStacks } from "./lib/fonts";
@@ -84,6 +86,7 @@ async function droppedUrl(dataTransfer: DataTransfer) {
 function friendlyError(value: unknown) {
   const text = String(value);
   if (text.includes("InvalidUrl")) return "That doesn't look like a valid web link.";
+  if (text.includes("SpotiFLAC") && text.includes("DependencyMissing")) return "SpotiFLAC isn't ready. Open Settings → Status to install or update it.";
   if (text.includes("DependencyMissing")) return "Pully's download engine isn't available.";
   if (text.includes("Unsupported")) return "Pully couldn't find downloadable media at this link.";
   return text.replace(/^.*?: /, "") || "Something went wrong while analyzing this link.";
@@ -101,6 +104,8 @@ export default function App() {
   const [installing, setInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState<Record<string, SetupProgress>>({});
   const [installError, setInstallError] = useState<string>();
+  const [installingSpotiFlac, setInstallingSpotiFlac] = useState(false);
+  const [spotiFlacInstallError, setSpotiFlacInstallError] = useState<string>();
   const [toast, setToast] = useState<string>();
   const [systemDark, setSystemDark] = useState(() => matchMedia("(prefers-color-scheme: dark)").matches);
   const [dropState, setDropState] = useState<"idle" | "hover" | "success">("idle");
@@ -111,6 +116,7 @@ export default function App() {
   const browserTabs = useBrowserTabs(settings.browserIntegrationEnabled && settings.browserShowTabs);
   const dark = settings.theme === "dark" || (settings.theme === "system" && systemDark);
   const hasActiveDownloads = downloads.downloads.some((item) => ["waiting", "downloading", "processing"].includes(item.status));
+  const updater = useAppUpdater(settings.autoUpdate, !hasActiveDownloads && !analyzing && !quickBusy && !installing && !installingSpotiFlac);
 
   useEffect(() => {
     const query = matchMedia("(prefers-color-scheme: dark)");
@@ -164,6 +170,17 @@ export default function App() {
       setInstallError(friendlyError(caught));
     } finally {
       setInstalling(false);
+    }
+  };
+  const installSpotiFlac = async () => {
+    setInstallingSpotiFlac(true);
+    setSpotiFlacInstallError(undefined);
+    try {
+      setDependencies(await api.installSpotiFlac());
+    } catch (caught) {
+      setSpotiFlacInstallError(friendlyError(caught));
+    } finally {
+      setInstallingSpotiFlac(false);
     }
   };
   useEffect(() => {
@@ -238,7 +255,7 @@ export default function App() {
   const toggleQuickMode = () => { setMedia(undefined); setError(undefined); saveSettings({ ...settings, quickMode: !settings.quickMode }); };
   const paste = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readText();
       if (/^https?:\/\//i.test(text.trim())) setUrl(text.trim());
     } catch { /* Clipboard permission is optional. */ }
   };
@@ -257,9 +274,14 @@ export default function App() {
     navigate("home");
   };
   const queueDownload = async (request: DownloadRequest) => {
-    await downloads.start(request);
-    setToast("Added to downloads");
-    navigate("downloads");
+    try {
+      await downloads.start(request);
+      setToast("Added to downloads");
+      navigate("downloads");
+    } catch (caught) {
+      setError(friendlyError(caught));
+      navigate("home");
+    }
   };
   const savePreferences = (next: Parameters<typeof saveSettings>[0]) => {
     saveSettings(next);
@@ -322,7 +344,7 @@ export default function App() {
       </header>
 
       <AnimatePresence mode="wait" initial={false}>
-        {page === "settings" ? <SettingsPage key="settings" settings={settings} dependencies={dependencies} onSave={savePreferences} onReset={resetSettings}/> : page === "downloads" ? <DownloadsPage key="downloads" items={downloads.downloads} onCancel={(id) => void downloads.cancel(id)} onRetry={(id) => void downloads.retry(id)} onRemove={(id) => void downloads.remove(id)} onOpen={(id) => void downloads.openFile(id)} onReveal={(id) => void downloads.revealFile(id)}/> : <HomePage key="home" url={url} analyzing={analyzing} quickBusy={quickBusy} error={error} dependencies={dependencies} installing={installing} installProgress={installProgress} installError={installError} media={media} settings={settings} browserTabs={browserTabs} onUrlChange={setUrl} onSubmit={submitUrl} onPaste={() => void paste()} onInstall={() => void installDependencies()} onAnalyze={(target) => void analyze(target)} onQuickDownload={(target) => void quickDownload(target)} onDownload={queueDownload}/>} 
+        {page === "settings" ? <SettingsPage key="settings" settings={settings} dependencies={dependencies} installingSpotiFlac={installingSpotiFlac} spotiFlacInstallError={spotiFlacInstallError} onInstallSpotiFlac={() => void installSpotiFlac()} updateStatus={updater.status} onCheckForUpdates={() => void updater.checkForUpdates(true)} onSave={savePreferences} onReset={resetSettings}/> : page === "downloads" ? <DownloadsPage key="downloads" items={downloads.downloads} onCancel={(id) => void downloads.cancel(id)} onRetry={(id) => void downloads.retry(id)} onRemove={(id) => void downloads.remove(id)} onOpen={(id) => void downloads.openFile(id)} onReveal={(id) => void downloads.revealFile(id)}/> : <HomePage key="home" url={url} analyzing={analyzing} quickBusy={quickBusy} error={error} dependencies={dependencies} installing={installing} installProgress={installProgress} installError={installError} media={media} settings={settings} browserTabs={browserTabs} onUrlChange={setUrl} onSubmit={submitUrl} onPaste={() => void paste()} onInstall={() => void installDependencies()} onAnalyze={(target) => void analyze(target)} onQuickDownload={(target) => void quickDownload(target)} onDownload={queueDownload}/>}
       </AnimatePresence>
       <AnimatePresence>{toast && <Toast key={toast} message={toast} onClose={() => setToast(undefined)}/>}</AnimatePresence>
       <AnimatePresence>

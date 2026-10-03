@@ -12,6 +12,7 @@ pub struct MediaFormat {
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
     pub file_size: Option<u64>,
+    pub protocol: Option<String>,
     pub note: Option<String>,
     pub has_video: bool,
     pub has_audio: bool,

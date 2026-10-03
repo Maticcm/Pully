@@ -4,7 +4,7 @@ use crate::{
     models::{MediaFormat, MediaInfo, PlaylistItem, SubtitleTrack},
 };
 use serde_json::Value;
-use std::{path::PathBuf, process::Command, thread, time::Duration};
+use std::{path::PathBuf, thread, time::Duration};
 
 const ANALYSIS_ATTEMPTS: u32 = 3;
 
@@ -46,7 +46,7 @@ impl MediaExtractor for YtDlpExtractor {
         let mut attempt = 0;
         let output = loop {
             attempt += 1;
-            let output = Command::new(&self.binary)
+            let output = crate::process::hidden_command(&self.binary)
                 .args(&args)
                 .output()
                 .map_err(|e| {
@@ -132,6 +132,7 @@ pub fn parse_media_info(value: &Value, fallback_url: &str) -> Result<MediaInfo> 
                             .get("filesize")
                             .or_else(|| f.get("filesize_approx"))
                             .and_then(Value::as_u64),
+                        protocol: text(f, "protocol"),
                         note: text(f, "format_note"),
                         has_video,
                         has_audio,
@@ -198,10 +199,11 @@ mod tests {
     use super::*;
     #[test]
     fn parses_formats_and_subtitles() {
-        let value = serde_json::json!({"id":"abc","webpage_url":"https://example.com/v","title":"Example","uploader":"Maker","duration":61.0,"extractor_key":"Example","formats":[{"format_id":"137","ext":"mp4","height":1080,"vcodec":"avc1","acodec":"none"},{"format_id":"140","ext":"m4a","vcodec":"none","acodec":"mp4a"}],"subtitles":{"en":[{"ext":"vtt"}]}});
+        let value = serde_json::json!({"id":"abc","webpage_url":"https://example.com/v","title":"Example","uploader":"Maker","duration":61.0,"extractor_key":"Example","formats":[{"format_id":"137","ext":"mp4","height":1080,"vcodec":"avc1","acodec":"none","protocol":"https"},{"format_id":"140","ext":"m4a","vcodec":"none","acodec":"mp4a"}],"subtitles":{"en":[{"ext":"vtt"}]}});
         let info = parse_media_info(&value, "https://example.com/v").unwrap();
         assert_eq!(info.formats.len(), 2);
         assert!(info.formats[0].has_video);
+        assert_eq!(info.formats[0].protocol.as_deref(), Some("https"));
         assert_eq!(info.subtitles[0].language, "en");
     }
 

@@ -1,6 +1,12 @@
 import type { DownloadRequest, MediaFormat, MediaInfo } from "../types/media";
 import type { AppSettings } from "../types/settings";
 
+export function canEmbedThumbnail(mode: "video" | "audio", format: string) {
+  return mode === "video"
+    ? ["mp4", "mkv", "mov"].includes(format)
+    : ["mp3", "m4a", "flac", "opus", "vorbis", "alac"].includes(format);
+}
+
 export function qualityValue(format: MediaFormat) {
   return format.height ? String(format.height) : "original";
 }
@@ -15,6 +21,8 @@ export function videoFormats(formats: MediaFormat[]) {
     if (resolutionDifference) return resolutionDifference;
     const frameRateDifference = (b.fps ?? 0) - (a.fps ?? 0);
     if (frameRateDifference) return frameRateDifference;
+    const directDifference = Number(b.protocol === "https") - Number(a.protocol === "https");
+    if (directDifference) return directDifference;
     return (b.fileSize ?? 0) - (a.fileSize ?? 0);
   });
 }
@@ -50,7 +58,7 @@ export function buildQuickDownloadRequest(media: MediaInfo, settings: AppSetting
       playlistFolder: settings.playlistFolder,
       existingFileBehavior: settings.existingFileBehavior,
       embedMetadata: settings.quickModeEmbedMetadata,
-      embedThumbnail: settings.quickModeEmbedThumbnail,
+      embedThumbnail: settings.quickModeEmbedThumbnail && canEmbedThumbnail(mode, settings.quickModeVideoFormat),
       saveThumbnail: settings.saveThumbnail,
       downloadSubtitles: settings.quickModeDownloadSubtitles,
       embedSubtitles: settings.embedSubtitles && settings.quickModeDownloadSubtitles,
@@ -69,7 +77,7 @@ export function buildQuickDownloadRequest(media: MediaInfo, settings: AppSetting
     playlistFolder: settings.playlistFolder,
     existingFileBehavior: settings.existingFileBehavior,
     embedMetadata: settings.quickModeEmbedMetadata,
-    embedThumbnail: settings.quickModeEmbedThumbnail,
+    embedThumbnail: settings.quickModeEmbedThumbnail && media.source.toLowerCase() !== "spotify" && canEmbedThumbnail(mode, settings.quickModeAudioFormat),
     saveThumbnail: settings.saveThumbnail,
     downloadSubtitles: settings.quickModeDownloadSubtitles,
     embedSubtitles: settings.embedSubtitles && settings.quickModeDownloadSubtitles,

@@ -12,9 +12,10 @@ import { ColorPicker } from "../components/ColorPicker";
 import { interactionSpring, pageTransition, pageVariants } from "../lib/animation";
 import { fontStacks } from "../lib/fonts";
 import { api } from "../lib/tauri";
+import type { UpdateStatus } from "../hooks/useAppUpdater";
 
 type Section = "general" | "downloads" | "quick" | "naming" | "extras" | "browser" | "status";
-type Props = { settings: AppSettings; dependencies?: DependencyInfo; onSave(value: AppSettings): void; onReset(): void };
+type Props = { settings: AppSettings; dependencies?: DependencyInfo; installingSpotiFlac: boolean; spotiFlacInstallError?: string; onInstallSpotiFlac(): void; updateStatus: UpdateStatus; onCheckForUpdates(): void; onSave(value: AppSettings): void; onReset(): void };
 
 const sections: { id: Section; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "general", label: "General", icon: SlidersHorizontal },
@@ -71,7 +72,7 @@ const audioFormatOptions = [
 const concurrencyOptions = [1, 2, 3, 4, 5, 6].map((value) => ({ value: String(value), label: String(value) }));
 const existingFileOptions = [{ value: "skip", label: "Skip existing file" }, { value: "overwrite", label: "Overwrite it" }];
 
-export function SettingsPage({ settings, dependencies, onSave, onReset }: Props) {
+export function SettingsPage({ settings, dependencies, installingSpotiFlac, spotiFlacInstallError, onInstallSpotiFlac, updateStatus, onCheckForUpdates, onSave, onReset }: Props) {
   const [draft, setDraft] = useState(settings);
   const [section, setSection] = useState<Section>("general");
   const [saved, setSaved] = useState(false);
@@ -154,10 +155,20 @@ export function SettingsPage({ settings, dependencies, onSave, onReset }: Props)
         </div>
       </SettingsGrid>}
       {section === "status" && <SettingsGrid title="Installed components" description="Pully checks these local executables before starting work.">
-        <StatusRow label="Pully" value={dependencies?.pully ?? "0.1.0"} ready />
+        <StatusRow label="Pully" value={dependencies?.pully ?? "0.1.1"} ready />
+        <div className="sm:col-span-2 rounded-xl border border-black/[.06] px-4 py-3 dark:border-white/[.08]">
+          <Toggle checked={draft.autoUpdate} onChange={(value) => update("autoUpdate", value)} label="Install app updates automatically" description="Checks on startup and daily. Installs signed updates after downloads and other work finish."/>
+          <div className="mt-3 flex items-center gap-3"><button type="button" className="secondary-button" disabled={["checking", "downloading", "installing"].includes(updateStatus.phase)} onClick={onCheckForUpdates}>Check for updates</button><span className="text-xs text-black/45 dark:text-white/40">{updateStatus.phase === "checking" ? "Checking..." : updateStatus.phase === "current" ? "Pully is up to date" : updateStatus.phase === "waiting" ? `Version ${updateStatus.version} waiting for idle time` : updateStatus.phase === "downloading" ? `Downloading ${updateStatus.version}${updateStatus.progress == null ? "" : ` (${updateStatus.progress}%)`}` : updateStatus.phase === "installing" ? "Installing update..." : updateStatus.phase === "error" ? "Update check or install failed" : ""}</span></div>
+          {updateStatus.phase === "error" && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-300">{updateStatus.message}</p>}
+        </div>
         <StatusRow label="yt-dlp" value={dependencies?.ytDlp ?? "Not found"} ready={Boolean(dependencies?.ytDlp)} />
         <StatusRow label="FFmpeg" value={dependencies?.ffmpeg ?? "Not found"} ready={Boolean(dependencies?.ffmpeg)} />
         <StatusRow label="SpotiFLAC (beta)" value={dependencies?.spotiFlac ?? "Not found — needed only for Spotify links"} ready={Boolean(dependencies?.spotiFlac)} />
+        <div className="sm:col-span-2">
+          <button type="button" className="secondary-button" disabled={installingSpotiFlac} onClick={onInstallSpotiFlac}>{installingSpotiFlac ? "Installing SpotiFLAC..." : dependencies?.spotiFlac ? "Update SpotiFLAC" : "Install SpotiFLAC"}</button>
+          <p className="mt-2 text-xs text-black/45 dark:text-white/40">Uses Python 3 to install SpotiFLAC in Pully's app data folder. Required only for Spotify downloads.</p>
+          {spotiFlacInstallError && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-300">{spotiFlacInstallError}</p>}
+        </div>
       </SettingsGrid>}
       </motion.div>
       </TabsPrimitive.Content>

@@ -7,12 +7,14 @@ pre-release audit rather than aspirational.
 
 ## What Pully's own code does over the network
 
-Almost nothing, and never without you asking for it. The frontend still
-makes zero outbound network requests — enforced, not just true by omission:
+Automatic app updates (enabled by default) check the Pully GitHub Releases
+manifest hosted on raw.githubusercontent.com on startup and daily, then install a signed update when Pully is idle.
+This can be disabled in Settings > Status. The frontend still
+makes zero direct outbound network requests — enforced by the CSP:
 the app's Content Security Policy (`src-tauri/tauri.conf.json`) restricts
 `connect-src` to Tauri's own local IPC channel, so the webview cannot
 `fetch()` anything even if it tried. There is no analytics SDK, no crash
-reporter, no telemetry, no background update-check ping.
+reporter or telemetry.
 
 The one exception: the Rust backend can download `yt-dlp.exe` (from
 `github.com/yt-dlp/yt-dlp`'s GitHub releases) and `ffmpeg.exe` (from
@@ -20,8 +22,8 @@ The one exception: the Rust backend can download `yt-dlp.exe` (from
 sources over HTTPS, writing them into Pully's own app-data folder. This
 **only** runs when you click "Install automatically" on the
 missing-dependency banner — never on startup, never silently, never
-without that click. See `src-tauri/src/setup.rs`. SpotiFLAC is never
-downloaded this way, or at all — see `docs/SPOTIFLAC.md`.
+without that click. See `src-tauri/src/setup.rs`. SpotiFLAC can be installed
+separately from Settings > Status — see `docs/SPOTIFLAC.md`.
 
 ## What happens when you actually use Pully
 
@@ -35,7 +37,7 @@ downloaded this way, or at all — see `docs/SPOTIFLAC.md`.
   same-user auth token. This never leaves your machine — there is no
   server involved anywhere in this path. See `docs/BROWSER_INTEGRATION.md`
   for the full protocol and message-validation details.
-- **SpotiFLAC** (optional, user-supplied binary): its network behavior is
+- **SpotiFLAC** (optional, installed from Settings or supplied locally): its network behavior is
   outside Pully's control — Pully only shells out to it and parses its
   output. See `docs/SPOTIFLAC.md`.
 
@@ -48,7 +50,7 @@ downloaded this way, or at all — see `docs/SPOTIFLAC.md`.
 - **Download history** — not persisted at all. Once you clear a completed
   download from the queue (or close Pully), there's no record of it kept
   anywhere.
-- Nothing is ever sent off your device by Pully itself.
+- App update checks contact GitHub Releases. No account or download history is sent with them.
 
 ## Browser extension permissions
 

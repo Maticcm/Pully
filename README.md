@@ -73,15 +73,21 @@ The implementation and automated protocol tests are present, but the documented 
 ## Private by design
 
 - No account, advertising, analytics SDK, telemetry, crash reporter, or remote Pully service.
-- The frontend Content Security Policy blocks outbound web requests; network access for requested media is performed by the selected provider tool.
+- The frontend Content Security Policy blocks outbound web requests; media providers and the optional app updater make their own HTTPS requests.
 - Preferences stay in local storage. Download history is not persisted, and detected browser tabs live in memory only.
-- Missing yt-dlp and FFmpeg binaries are downloaded only after an explicit **Install automatically** action. SpotiFLAC is never installed automatically.
+- Missing yt-dlp and FFmpeg binaries are downloaded only after an explicit **Install automatically** action. SpotiFLAC can be installed from Settings. App updates check GitHub Releases on startup and daily by default, then install signed updates when Pully is idle; this can be disabled in Settings.
 
 Read [Privacy](docs/PRIVACY.md) for the exact network, storage, and browser-extension behavior.
 
 ## Download Pully
 
-Pully is currently pre-release. The project does **not** publish an official Windows installer on [GitHub Releases](https://github.com/Maticcm/Pully/releases) yet, so there is no binary download link to recommend. For now, run Pully from source.
+Download the Windows installer or standalone ZIP from [GitHub Releases](https://github.com/Maticcm/Pully/releases). Pully is currently pre-release. The standalone ZIP includes the download tools; extract it fully and run `pully.exe`.
+
+### Publishing app updates
+
+Version 0.1.1 adds signed app updates. The first updater-enabled installer must be installed manually. Later signed releases install automatically when Pully is idle (unless disabled in Settings > Status).
+
+Keep the private updater signing key backed up outside the repository. Set `TAURI_SIGNING_PRIVATE_KEY_PATH` to that file and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to its password (an empty string for a passwordless key). Build with `npm run tauri build -- --bundles nsis --config src-tauri/tauri.local-sign.conf.json`, run `node scripts/sign-installer.cjs`, then run `powershell -File scripts/create-update-manifest.ps1`. Upload the generated NSIS installer, its `.sig` file, and `latest.json` to a GitHub Release tagged with the same `v<version>`. Commit the generated `updates/latest.json` feed to `main` after uploading the release assets; this feed supports prereleases as well as stable releases. Update `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` together for each new release. Do not rotate the key without a migration plan: installed copies trust the public key embedded in the app.
 
 ## Building from source
 

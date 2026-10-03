@@ -1,11 +1,11 @@
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import { Captions, ChevronDown, Download, ListVideo, Music2, Video } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useId, useMemo, useState } from "react";
 import { Checkbox } from "./Checkbox";
 import { Select } from "./Select";
 import { interactionSpring, layoutSpring } from "../lib/animation";
-import { frameRateValue, qualityValue, sourceFormatFor, videoFormats } from "../lib/formats";
+import { canEmbedThumbnail, frameRateValue, qualityValue, sourceFormatFor, videoFormats } from "../lib/formats";
 import type { DownloadRequest, MediaFormat, MediaInfo } from "../types/media";
 import type { AppSettings } from "../types/settings";
 
@@ -24,6 +24,9 @@ function lowerFrameRatesFor(format?: MediaFormat) {
 }
 
 export function MediaCard({ media, settings, busy, onDownload }: Props) {
+  const advancedId = useId();
+  const reduceMotion = useReducedMotion();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const videos = useMemo(() => videoFormats(media.formats), [media]);
   const qualityFormats = useMemo(() => videos.filter((format, index) => index === videos.findIndex((candidate) => candidate.height === format.height)), [videos]);
   const hasVideoFormats = videos.length > 0;
@@ -39,6 +42,7 @@ export function MediaCard({ media, settings, busy, onDownload }: Props) {
   const [metadata, setMetadata] = useState(settings.embedMetadata);
   const [thumbnail, setThumbnail] = useState(settings.embedThumbnail);
   const [subtitles, setSubtitles] = useState(settings.downloadSubtitles || settings.embedSubtitles);
+  const thumbnailSupported = !isSpotify && canEmbedThumbnail(mode, outputFormat);
   const videoOptions = useMemo(() => [{ value: "best", label: "Best" }, ...qualityFormats.map((format) => ({ value: qualityValue(format), label: format.height ? qualityLabel(format.height) : format.note || "Original quality" }))], [qualityFormats]);
   const sourceFormat = useMemo(() => sourceFormatFor(videos, quality), [quality, videos]);
   const availableFrameRates = useMemo(() => lowerFrameRatesFor(sourceFormat), [sourceFormat]);
@@ -51,7 +55,7 @@ export function MediaCard({ media, settings, busy, onDownload }: Props) {
 
   const submit = () => {
     const selectedFormat = quality === "best" && frameRate === "best" ? undefined : sourceFormat;
-    return onDownload({ url: media.url, title: media.title, creator: media.creator, thumbnail: media.thumbnail, mode, formatId: mode === "video" ? selectedFormat?.id ?? "best" : undefined, formatHasAudio: mode === "video" ? selectedFormat?.hasAudio : undefined, targetFps: mode === "video" && convertsFrameRate ? Number(frameRate) : undefined, outputFormat, outputDirectory: settings.downloadDirectory || undefined, filenameTemplate: settings.filenameTemplate, isPlaylist: media.isPlaylist, playlistFolder: settings.playlistFolder, existingFileBehavior: settings.existingFileBehavior, embedMetadata: metadata, embedThumbnail: thumbnail, saveThumbnail: settings.saveThumbnail, downloadSubtitles: subtitles, embedSubtitles: settings.embedSubtitles });
+    return onDownload({ url: media.url, title: media.title, creator: media.creator, thumbnail: media.thumbnail, mode, formatId: mode === "video" ? selectedFormat?.id ?? "best" : undefined, formatHasAudio: mode === "video" ? selectedFormat?.hasAudio : undefined, targetFps: mode === "video" && convertsFrameRate ? Number(frameRate) : undefined, outputFormat, outputDirectory: settings.downloadDirectory || undefined, filenameTemplate: settings.filenameTemplate, isPlaylist: media.isPlaylist, playlistFolder: settings.playlistFolder, existingFileBehavior: settings.existingFileBehavior, embedMetadata: metadata, embedThumbnail: thumbnail && thumbnailSupported, saveThumbnail: settings.saveThumbnail, downloadSubtitles: subtitles, embedSubtitles: settings.embedSubtitles });
   };
 
   const changeQuality = (value: string) => {
@@ -93,7 +97,16 @@ export function MediaCard({ media, settings, busy, onDownload }: Props) {
           </motion.div>
         </AnimatePresence>
         <AnimatePresence initial={false}>{mode === "audio" && ["flac", "alac", "wav"].includes(outputFormat) && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-3 overflow-hidden text-[11px] leading-relaxed text-black/45 dark:text-white/40">Lossless output avoids further quality loss, but it cannot restore detail missing from a lossy source.</motion.p>}</AnimatePresence>
-        <details className="mt-4 group"><summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-black/50 dark:text-white/45">Advanced <ChevronDown size={14} className="transition group-open:rotate-180"/></summary><div className="mt-3 grid gap-2 text-sm"><Checkbox checked={metadata} onChange={setMetadata}>Embed metadata</Checkbox><Checkbox checked={thumbnail} onChange={setThumbnail}>Embed thumbnail</Checkbox>{media.subtitles.length > 0 && <Checkbox checked={subtitles} onChange={setSubtitles}><Captions size={15}/> Download subtitles ({media.subtitles.length})</Checkbox>}</div></details>
+        <div className="mt-4">
+          <button type="button" aria-expanded={advancedOpen} aria-controls={advancedId} onClick={() => setAdvancedOpen((open) => !open)} className="flex items-center gap-2 text-xs font-semibold text-black/50 outline-none transition-colors hover:text-black focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-lime/50 dark:text-white/45 dark:hover:text-white">
+            Advanced <motion.span animate={{ rotate: advancedOpen ? 180 : 0 }} transition={reduceMotion ? { duration: 0 } : { duration: 0.2, ease: "easeInOut" }}><ChevronDown size={14}/></motion.span>
+          </button>
+          <AnimatePresence initial={false}>
+            {advancedOpen && <motion.div id={advancedId} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduceMotion ? { duration: 0 } : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
+              <div className="grid gap-2 pt-3 text-sm"><Checkbox checked={metadata} onChange={setMetadata}>Embed metadata</Checkbox><Checkbox checked={thumbnail && thumbnailSupported} disabled={!thumbnailSupported} onChange={setThumbnail}>Embed thumbnail</Checkbox>{!thumbnailSupported && <p className="text-xs text-black/40 dark:text-white/40">Thumbnail embedding is unavailable for this output format.</p>}{media.subtitles.length > 0 && <Checkbox checked={subtitles} onChange={setSubtitles}><Captions size={15}/> Download subtitles ({media.subtitles.length})</Checkbox>}</div>
+            </motion.div>}
+          </AnimatePresence>
+        </div>
         <motion.button whileHover={busy ? undefined : { y: -1 }} whileTap={busy ? undefined : { scale: 0.985 }} transition={interactionSpring} disabled={busy} onClick={submit} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-lime px-5 py-3.5 text-sm font-bold text-accentForeground transition-colors hover:brightness-95 disabled:opacity-50"><Download size={17}/>{media.isPlaylist ? "Download playlist" : "Download"}</motion.button>
       </div>
     </div>

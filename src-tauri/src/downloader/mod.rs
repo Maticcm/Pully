@@ -6,7 +6,7 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
@@ -58,6 +58,16 @@ fn format_selector(request: &DownloadRequest) -> String {
         Some(id) if request.format_has_audio.unwrap_or(false) => id.to_string(),
         Some(id) => format!("{id}+bestaudio/best"),
         None => "bestvideo+bestaudio/best".into(),
+    }
+}
+
+fn supports_thumbnail_embedding(request: &DownloadRequest) -> bool {
+    match request.mode {
+        DownloadMode::Video => matches!(request.output_format.as_str(), "mp4" | "mkv" | "mov"),
+        DownloadMode::Audio => matches!(
+            request.output_format.as_str(),
+            "mp3" | "m4a" | "flac" | "opus" | "vorbis" | "alac"
+        ),
     }
 }
 
@@ -325,6 +335,11 @@ impl DownloadManager {
                 return;
             }
         };
+        // Keep the template relative so yt-dlp applies -P to both the final
+        // file and its temporary files. An absolute -o silently ignores -P.
+        let relative_template = output_template
+            .strip_prefix(directory)
+            .expect("validated output template stays inside the download folder");
         let temp_directory = std::env::temp_dir().join("Pully").join(id);
         if let Err(error) = fs::create_dir_all(&temp_directory) {
             self.fail(
@@ -338,8 +353,13 @@ impl DownloadManager {
             ExistingFileBehavior::Skip => "--no-overwrites",
             ExistingFileBehavior::Overwrite => "--force-overwrites",
         };
-        let mut args: Vec<String> = vec!["--ignore-config".into(), "--newline".into(), "--no-colors".into(), existing_file_arg.into(), "--windows-filenames".into(), "--ignore-errors".into(), "--extractor-retries".into(), "3".into(), "--retry-sleep".into(), "extractor:linear=0.5:1.5:0.5".into(), "--progress".into(), "--progress-template".into(), "download:PULLY_PROGRESS|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress._speed_str)s|%(progress._eta_str)s".into(), "--progress-template".into(), "postprocess:PULLY_PROCESSING".into(), "--print".into(), "after_move:PULLY_FILE|%(filepath)s".into(), "-P".into(), format!("temp:{}", temp_directory.to_string_lossy()), "-o".into(), output_template.to_string_lossy().into_owned()];
+        let mut args: Vec<String> = vec!["--ignore-config".into(), "--newline".into(), "--no-colors".into(), existing_file_arg.into(), "--windows-filenames".into(), "--ignore-errors".into(), "--extractor-retries".into(), "3".into(), "--retry-sleep".into(), "extractor:linear=0.5:1.5:0.5".into(), "--progress".into(), "--progress-template".into(), "download:PULLY_PROGRESS|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress._speed_str)s|%(progress._eta_str)s".into(), "--progress-template".into(), "postprocess:PULLY_PROCESSING".into(), "--print".into(), "after_move:PULLY_FILE|%(filepath)s".into(), "-P".into(), directory.to_string_lossy().into_owned(), "-P".into(), format!("temp:{}", temp_directory.to_string_lossy()), "-o".into(), relative_template.to_string_lossy().into_owned()];
         args.extend(extractors::js_runtime_args(paths.deno.as_deref()));
+        if extractors::is_youtube_url(&job.request.url) {
+            // Prefer direct HTTPS media over YouTube's HLS variants, which
+            // can advertise a format and then reject segment requests.
+            args.extend(["--format-sort".into(), "proto:https".into()]);
+        }
         if let Some(ffmpeg) = &paths.ffmpeg {
             if let Some(parent) = ffmpeg.parent() {
                 args.extend([
@@ -382,7 +402,7 @@ impl DownloadManager {
         if job.request.embed_metadata {
             args.push("--embed-metadata".into());
         }
-        if job.request.embed_thumbnail {
+        if job.request.embed_thumbnail && supports_thumbnail_embedding(&job.request) {
             args.push("--embed-thumbnail".into());
             args.extend(["--convert-thumbnails".into(), "jpg".into()]);
         }
@@ -401,7 +421,7 @@ impl DownloadManager {
         args.push("--".into());
         args.push(job.request.url.clone());
         self.update(app, id, |p| p.status = DownloadStatus::Downloading);
-        let mut child = match Command::new(&paths.yt_dlp)
+        let mut child = match crate::process::hidden_command(&paths.yt_dlp)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -530,7 +550,7 @@ impl DownloadManager {
         let args = spotiflac_args(&job.request.url, &temp_directory);
 
         self.update(app, id, |p| p.status = DownloadStatus::Downloading);
-        let mut child = match Command::new(&binary)
+        let mut child = match crate::process::hidden_command(&binary)
             .args(&args)
             // Older Windows builds of SpotiFLAC print Unicode status symbols.
             // Without UTF-8 mode Python can abort its resolver mid-download.
@@ -829,8 +849,8 @@ fn spotiflac_args(url: &str, output_directory: &Path) -> Vec<String> {
     ]
 }
 
-fn spotiflac_supports_lossless_contract(binary: &Path) -> bool {
-    Command::new(binary)
+pub(crate) fn spotiflac_supports_lossless_contract(binary: &Path) -> bool {
+    crate::process::hidden_command(binary)
         .arg("--help")
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
@@ -965,7 +985,7 @@ fn cleanup_temp_directory(path: &std::path::Path) {
 
 #[cfg(windows)]
 fn kill_process(pid: u32) {
-    let _ = Command::new("taskkill")
+    let _ = crate::process::hidden_command("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -973,7 +993,7 @@ fn kill_process(pid: u32) {
 }
 #[cfg(not(windows))]
 fn kill_process(pid: u32) {
-    let _ = Command::new("kill")
+    let _ = crate::process::hidden_command("kill")
         .args(["-TERM", &pid.to_string()])
         .status();
 }
@@ -1156,6 +1176,21 @@ mod tests {
     fn selects_audio_only_when_needed() {
         assert_eq!(format_selector(&request(false)), "137+bestaudio/best");
         assert_eq!(format_selector(&request(true)), "137");
+    }
+
+    #[test]
+    fn skips_thumbnail_embedding_for_unsupported_containers() {
+        let mut video = request(false);
+        assert!(supports_thumbnail_embedding(&video));
+        video.output_format = "webm".into();
+        assert!(!supports_thumbnail_embedding(&video));
+        video.output_format = "original".into();
+        assert!(!supports_thumbnail_embedding(&video));
+        let mut audio = audio_request(ExistingFileBehavior::Skip);
+        audio.output_format = "flac".into();
+        assert!(supports_thumbnail_embedding(&audio));
+        audio.output_format = "wav".into();
+        assert!(!supports_thumbnail_embedding(&audio));
     }
 
     #[test]

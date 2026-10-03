@@ -1,0 +1,5 @@
+{
+  "build": {
+    "beforeBundleCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-native-host.ps1"
+  }
+}

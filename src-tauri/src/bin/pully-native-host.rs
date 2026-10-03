@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 //! Chrome/Edge/Brave native-messaging host for the Pully browser extension.
 //!
 //! One instance of this process runs per `chrome.runtime.connectNative(...)`

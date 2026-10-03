@@ -5,6 +5,7 @@ mod errors;
 mod extractors;
 mod filesystem;
 mod models;
+mod process;
 mod setup;
 mod startup;
 
@@ -75,6 +76,9 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let launch_args: Vec<String> = std::env::args().collect();
             let pending = first_url_from_args(&launch_args).map(|url| PendingLaunch {
@@ -195,7 +199,8 @@ pub fn run() {
             commands::set_browser_integration_enabled,
             commands::push_theme,
             commands::set_run_in_tray,
-            commands::install_dependencies
+            commands::install_dependencies,
+            commands::install_spotiflac
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pully");

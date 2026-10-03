@@ -185,6 +185,7 @@ fn lossless_audio_format() -> MediaFormat {
         video_codec: None,
         audio_codec: Some("flac".into()),
         file_size: None,
+        protocol: None,
         note: Some("Lossless via SpotiFLAC".into()),
         has_video: false,
         has_audio: true,

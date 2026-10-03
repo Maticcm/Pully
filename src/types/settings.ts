@@ -35,6 +35,7 @@ export type AppSettings = {
   browserOnlyActiveTab: boolean;
   browserShowBrowserName: boolean;
   runInTray: boolean;
+  autoUpdate: boolean;
 };
 
 export const defaultSettings: AppSettings = {
@@ -69,4 +70,5 @@ export const defaultSettings: AppSettings = {
   browserOnlyActiveTab: false,
   browserShowBrowserName: true,
   runInTray: true,
+  autoUpdate: true,
 };

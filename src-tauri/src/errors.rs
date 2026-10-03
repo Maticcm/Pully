@@ -31,6 +31,11 @@ impl Serialize for PullyError {
 pub type Result<T> = std::result::Result<T, PullyError>;
 
 pub fn map_process_error(stderr: &str) -> PullyError {
+    let stderr = stderr
+        .lines()
+        .filter(|line| line.trim() != "PULLY_PROCESSING")
+        .collect::<Vec<_>>()
+        .join("\n");
     let lower = stderr.to_lowercase();
     if lower.contains("unsupported url") || lower.contains("no video formats found") {
         PullyError::Unsupported(stderr.to_string())
@@ -57,6 +62,10 @@ pub fn map_process_error(stderr: &str) -> PullyError {
             "YouTube returned a temporary reload response after several attempts. Try the link again in a moment."
                 .into(),
         )
+    } else if lower.contains("http error 403") && lower.contains("unable to download video data") {
+        PullyError::ProcessFailed(format!(
+            "The media server refused the selected stream (HTTP 403). Try again or choose another quality.\n{stderr}"
+        ))
     } else {
         PullyError::ProcessFailed(stderr.to_string())
     }
@@ -85,5 +94,12 @@ mod tests {
             map_process_error("ERROR: [youtube] abc: The page needs to be reloaded.").to_string();
         assert!(error.contains("temporary reload response"));
         assert!(error.contains("Try the link again"));
+    }
+
+    #[test]
+    fn hides_internal_progress_markers_from_errors() {
+        let error = map_process_error("PULLY_PROCESSING\nERROR: unable to download video data: HTTP Error 403: Forbidden\nPULLY_PROCESSING").to_string();
+        assert!(!error.contains("PULLY_PROCESSING"));
+        assert!(error.contains("HTTP 403"));
     }
 }
