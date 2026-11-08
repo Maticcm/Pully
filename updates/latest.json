@@ -1,9 +1,9 @@
 {
-    "version":  "0.1.2",
+    "version":  "0.1.3",
     "platforms":  {
                       "windows-x86_64":  {
-                                             "url":  "https://github.com/Maticcm/Pully/releases/download/v0.1.2/Pully_0.1.2_x64-setup.exe",
-                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRVWwxdGNNYjVtTXUxWUpFRGZGb3RYTzdyVFhNNkNxQjRsRGhZOFhyMmxhV21wc1hDK2o2WlY2S0FhZTlhQVRuMW1iNlNCRmVNWGVWZ3ozUVhCYVp2MjdDUHl0aCtaRHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDE0NDI0CWZpbGU6UHVsbHlfMC4xLjJfeDY0LXNldHVwLmV4ZQpPWWxnY1VTWU9QbFA2a2toSHlzSkd5ckR1UE50aDdNZ2hRZyt3VFR2MjdpQkFsK3V3aEVWTGh6VjZTQ2ZCYzludUlCclFMeEtnbkdpa0JTU3I3T29CQT09Cg=="
+                                             "url":  "https://github.com/Maticcm/Pully/releases/download/v0.1.3/Pully_0.1.3_x64-setup.exe",
+                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRVWwxdGNNYjVtTXFxdE1MM1lFRHdlVDJ5T25UVVk2cTk4ek5YUmx2dXpJSzNCWXh4aHRjZTVpaFJVK1V0UEkrRzBoYzFPTnk5a2pGNXQwVyt5Wk1YR3g4bUREQ1lwQUEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTU2MjI1CWZpbGU6UHVsbHlfMC4xLjNfeDY0LXNldHVwLmV4ZQpwM2NQRXYwdFZ0aE1pdzRsdWRIaVZhdE1HQXNiNUwyRkp1MnlOd0liVi9BaHFqMWIzZDFIVm9sbGUwZEJCc2NNMUl6NEh6Y1RPM3JhY0Ywc2ZCSUpCdz09Cg=="
                                          }
                   }
 }
