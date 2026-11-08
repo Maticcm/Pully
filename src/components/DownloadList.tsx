@@ -27,13 +27,13 @@ function menuItems(item: DownloadProgress, handlers: Pick<Props, "onCancel" | "o
     items.push({ key: "open", label: "Open file", icon: <Check size={14}/>, onSelect: () => handlers.onOpen(item.id) });
     items.push({ key: "reveal", label: "Show in folder", icon: <FolderOpen size={14}/>, onSelect: () => handlers.onReveal(item.id) });
   }
-  if (item.status === "failed" || item.status === "cancelled") {
+  if (!item.syncManaged && (item.status === "failed" || item.status === "cancelled")) {
     items.push({ key: "retry", label: "Retry", icon: <RotateCcw size={14}/>, onSelect: () => handlers.onRetry(item.id) });
   }
   if (item.status === "downloading" || item.status === "waiting") {
     items.push({ key: "cancel", label: "Cancel", icon: <X size={14}/>, onSelect: () => handlers.onCancel(item.id), destructive: true });
   }
-  if (!(["downloading", "processing", "waiting"] as DownloadProgress["status"][]).includes(item.status)) {
+  if ((!item.syncManaged || item.syncFinalized) && !(["downloading", "processing", "waiting"] as DownloadProgress["status"][]).includes(item.status)) {
     items.push({ key: "remove", label: "Remove", icon: <Trash2 size={14}/>, onSelect: () => handlers.onRemove(item.id), destructive: true });
   }
   return items;
@@ -56,13 +56,13 @@ export function DownloadList({ items, onCancel, onRetry, onRemove, onOpen, onRev
             <div className="mt-2 flex items-center justify-between"><span className="text-[11px] text-black/40 dark:text-white/35">{bytes(item.downloadedBytes)}{item.totalBytes ? ` of ${bytes(item.totalBytes)}` : ""}</span><motion.div layout className="flex gap-1">
               <AnimatePresence initial={false} mode="popLayout">
                 {(item.status === "downloading" || item.status === "waiting") && <ActionButton key="cancel" title="Cancel" onClick={() => onCancel(item.id)}><X size={15}/></ActionButton>}
-                {(item.status === "failed" || item.status === "cancelled") && <ActionButton key="retry" title="Retry" onClick={() => onRetry(item.id)}><RotateCcw size={14}/></ActionButton>}
+                {!item.syncManaged && (item.status === "failed" || item.status === "cancelled") && <ActionButton key="retry" title="Retry" onClick={() => onRetry(item.id)}><RotateCcw size={14}/></ActionButton>}
                 {item.status === "completed" && <ActionButton key="open" title="Open file" onClick={() => onOpen(item.id)}><Check size={14}/></ActionButton>}
                 {item.status === "completed" && <ActionButton key="reveal" title="Show in folder" onClick={() => onReveal(item.id)}><FolderOpen size={14}/></ActionButton>}
-                {!(["downloading", "processing", "waiting"] as DownloadProgress["status"][]).includes(item.status) && <ActionButton key="remove" title="Remove" onClick={() => onRemove(item.id)}><Trash2 size={14}/></ActionButton>}
+                {(!item.syncManaged || item.syncFinalized) && !(["downloading", "processing", "waiting"] as DownloadProgress["status"][]).includes(item.status) && <ActionButton key="remove" title="Remove" onClick={() => onRemove(item.id)}><Trash2 size={14}/></ActionButton>}
               </AnimatePresence>
             </motion.div></div>
-            <AnimatePresence initial={false}>{item.error && <motion.details initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 overflow-hidden text-xs text-red-600"><summary className="cursor-pointer">Technical details</summary><p className="mt-1 whitespace-pre-wrap rounded-lg bg-red-50 p-2 dark:bg-red-950/30">{item.error}</p></motion.details>}</AnimatePresence>
+            <AnimatePresence initial={false}>{item.syncManaged && (item.status === "failed" || item.status === "cancelled") && <p className="mt-2 text-xs text-black/45 dark:text-white/45">Use Sync now on the Synced playlists page to retry.</p>}{item.error && <motion.details initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 overflow-hidden text-xs text-red-600"><summary className="cursor-pointer">Technical details</summary><p className="mt-1 whitespace-pre-wrap rounded-lg bg-red-50 p-2 dark:bg-red-950/30">{item.error}</p></motion.details>}</AnimatePresence>
           </div>
         </div>
       </motion.article></ContextMenu>)}

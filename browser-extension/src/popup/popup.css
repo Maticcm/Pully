@@ -64,9 +64,12 @@ header {
   color: rgb(var(--color-accent-foreground));
   flex-shrink: 0;
 }
-.logo svg {
-  width: 15px;
-  height: 15px;
+.logo-mark {
+  width: 21px;
+  height: 21px;
+  background: currentColor;
+  mask: url("../icons/mark.png") center / contain no-repeat;
+  -webkit-mask: url("../icons/mark.png") center / contain no-repeat;
 }
 .wordmark {
   font-size: 15px;

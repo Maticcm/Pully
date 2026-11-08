@@ -1,5 +1,6 @@
-import { AlertTriangle, ArrowDownToLine, AudioLines, Clipboard, Link2, Music2, Youtube } from "lucide-react";
+import { AlertTriangle, Clipboard, Link2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { PullyMark } from "../components/Brand";
 import { AnalyzeSkeleton } from "../components/AnalyzeSkeleton";
 import { DetectedTabs } from "../components/DetectedTabs";
 import { MediaCard } from "../components/MediaCard";
@@ -38,16 +39,9 @@ function BrandHeading({ compact = false, updateStatus }: { compact?: boolean; up
   const updateAvailable = updateStatus && ["waiting", "downloading", "installing"].includes(updateStatus.phase);
   return <div className={`home-heading ${compact ? "home-heading--compact" : ""}`}>
     <div className="home-wordmark">
-      <span className="home-brand-mark" aria-hidden="true"><ArrowDownToLine strokeWidth={2.3}/></span>
+      <span className="home-brand-mark" aria-hidden="true"><PullyMark/></span>
       <h1>Pully<span className="home-wordmark-dot" aria-hidden="true">.</span>{updateAvailable && <span className="home-update-dot" role="status" title={`Update ${updateStatus.version ?? ""} available`.replace("  ", " ")}><span className="sr-only">App update available{updateStatus.version ? `: version ${updateStatus.version}` : ""}.</span></span>}</h1>
     </div>
-    <p className="home-heading-description">Videos, music, and playlists. Saved your way.</p>
-    {!compact && <div className="home-platforms" aria-label="Supported platforms include YouTube, Spotify, SoundCloud, and more">
-      <span><Youtube size={16} className="text-red-500" aria-hidden="true"/>YouTube</span>
-      <span><Music2 size={15} className="text-emerald-500" aria-hidden="true"/>Spotify</span>
-      <span><AudioLines size={16} className="text-orange-500" aria-hidden="true"/>SoundCloud</span>
-      <span className="home-platforms-more">+ more</span>
-    </div>}
   </div>;
 }
 
@@ -82,7 +76,7 @@ export function HomePage(props: Props) {
   const hasDetectedTabs = settings.browserIntegrationEnabled && settings.browserShowTabs && browserTabs.length > 0;
   const workspace = Boolean(media) || analyzing || hasDetectedTabs || Boolean(error) || Boolean(dependencies && !dependencies.ready);
 
-  return <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition} className="mx-auto h-[calc(100vh-128px)] max-w-5xl scrollbar-hidden overflow-y-auto px-7 pb-6">
+  return <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition} className="home-page mx-auto h-full max-w-5xl scrollbar-hidden overflow-y-auto px-7 pb-6 pt-8">
     <AnimatePresence mode="wait" initial={false}>
       {!workspace ? <motion.div key="landing" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={layoutSpring} className="flex h-full flex-col items-center justify-center pb-20">
         <BrandHeading updateStatus={props.updateStatus}/>

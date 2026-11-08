@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { BrowserConnectionStatus, DependencyInfo, DetectedTab, DownloadRequest, MediaInfo } from "../types/media";
+import type { BrowserConnectionStatus, DependencyInfo, DetectedTab, DownloadRequest, MediaInfo, SyncedPlaylist } from "../types/media";
 
 export type ThemeSnapshot = {
   accentColor: string;
@@ -13,6 +13,9 @@ export type ThemeSnapshot = {
 export type PendingLaunch = { url: string; quick: boolean };
 
 export const api = {
+  listSyncedPlaylists: () => invoke<SyncedPlaylist[]>("list_synced_playlists"),
+  addSyncedPlaylist: (request: DownloadRequest, intervalMinutes: number, writeM3u: boolean) => invoke<void>("add_synced_playlist", { request, intervalMinutes, writeM3u }),
+  changeSyncedPlaylist: (id: string, action: "pause" | "resume" | "sync" | "remove" | "folder" | "root") => invoke<void>("change_synced_playlist", { id, action }),
   analyze: (url: string) => invoke<MediaInfo>("analyze_url", { url }),
   startDownload: (request: DownloadRequest) => invoke<string>("start_download", { request }),
   cancelDownload: (id: string) => invoke<void>("cancel_download", { id }),

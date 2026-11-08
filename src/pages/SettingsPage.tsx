@@ -4,7 +4,7 @@ import { Check, Download, FileText, FolderOpen, Info, Puzzle, RotateCcw, Save, S
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { BrowserConnectionStatus, DependencyInfo } from "../types/media";
+import type { BrowserConnectionStatus, DependencyInfo, SetupProgress } from "../types/media";
 import { defaultSettings, type AppSettings } from "../types/settings";
 import { Toggle } from "../components/Toggle";
 import { Select } from "../components/Select";
@@ -15,7 +15,7 @@ import { api } from "../lib/tauri";
 import type { UpdateStatus } from "../hooks/useAppUpdater";
 
 type Section = "general" | "downloads" | "quick" | "naming" | "extras" | "browser" | "status";
-type Props = { settings: AppSettings; dependencies?: DependencyInfo; installingSpotiFlac: boolean; spotiFlacInstallError?: string; onInstallSpotiFlac(): void; updateStatus: UpdateStatus; onCheckForUpdates(): void; onSave(value: AppSettings): void; onReset(): void };
+type Props = { initialSection?: "general" | "status"; settings: AppSettings; dependencies?: DependencyInfo; installingSpotiFlac: boolean; spotiFlacProgress?: SetupProgress; onVerifyDependencies(): Promise<void>; spotiFlacInstallError?: string; onInstallSpotiFlac(): void; updateStatus: UpdateStatus; onCheckForUpdates(): void; onSave(value: AppSettings): void; onReset(): void };
 
 const sections: { id: Section; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "general", label: "General", icon: SlidersHorizontal },
@@ -72,9 +72,9 @@ const audioFormatOptions = [
 const concurrencyOptions = [1, 2, 3, 4, 5, 6].map((value) => ({ value: String(value), label: String(value) }));
 const existingFileOptions = [{ value: "skip", label: "Skip existing file" }, { value: "overwrite", label: "Overwrite it" }];
 
-export function SettingsPage({ settings, dependencies, installingSpotiFlac, spotiFlacInstallError, onInstallSpotiFlac, updateStatus, onCheckForUpdates, onSave, onReset }: Props) {
+export function SettingsPage({ initialSection = "general", settings, dependencies, installingSpotiFlac, spotiFlacProgress, onVerifyDependencies, spotiFlacInstallError, onInstallSpotiFlac, updateStatus, onCheckForUpdates, onSave, onReset }: Props) {
   const [draft, setDraft] = useState(settings);
-  const [section, setSection] = useState<Section>("general");
+  const [section, setSection] = useState<Section>(initialSection);
   const [saved, setSaved] = useState(false);
   const [browserStatus, setBrowserStatus] = useState<BrowserConnectionStatus[]>([]);
   useEffect(() => setDraft(settings), [settings]);
@@ -94,10 +94,10 @@ export function SettingsPage({ settings, dependencies, installingSpotiFlac, spot
   const addToken = (token: string) => update("filenameTemplate", `${draft.filenameTemplate}${token}`);
 
   return <TabsPrimitive.Root value={section} onValueChange={(value) => setSection(value as Section)} asChild>
-    <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition} className="mx-auto flex h-[calc(100vh-128px)] max-w-5xl flex-col px-6 pb-6 pt-1">
+    <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition} className="mx-auto flex h-full max-w-5xl flex-col px-6 pb-6 pt-7">
     <div className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-3xl font-bold tracking-[-.04em]">Settings</h1><p className="mt-1 text-sm text-black/45 dark:text-white/40">Make Pully work the way you do.</p></div><div className="flex gap-2"><button className="secondary-button" onClick={reset}><RotateCcw size={15}/> Reset</button><button className="primary-button" disabled={!changed} onClick={save}>{saved ? <Check size={16}/> : <Save size={16}/>} {saved ? "Saved" : "Save changes"}</button></div></div>
     <TabsPrimitive.List aria-label="Settings sections" className="mt-5 grid grid-cols-7 border-b border-black/[.07] dark:border-white/[.08]">{sections.map(({ id, label, icon: Icon }) => <TabsPrimitive.Trigger key={id} value={id} aria-label={label} className={`settings-tab relative ${section === id ? "active" : ""}`}>{section === id && <motion.span layoutId="settings-tab-indicator" transition={interactionSpring} className="absolute inset-x-3 -bottom-0.5 h-0.5 rounded-full bg-lime"/>}<Icon size={16}/><span className="hidden sm:inline">{label}</span></TabsPrimitive.Trigger>)}</TabsPrimitive.List>
-    <section className="settings-panel mt-5 min-h-0 flex-1 rounded-3xl border border-black/[.07] bg-surface p-5 shadow-sm dark:border-white/[.08] sm:p-6">
+    <section className="settings-panel mt-5 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden rounded-3xl border border-black/[.07] bg-surface p-5 shadow-sm dark:border-white/[.08] sm:p-6">
       <AnimatePresence mode="wait" initial={false}>
       <TabsPrimitive.Content forceMount value={section} key={section} asChild>
       <motion.div initial={{ opacity: 0, x: 4 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -4 }} transition={{ duration: 0.14 }}>
@@ -154,21 +154,7 @@ export function SettingsPage({ settings, dependencies, installingSpotiFlac, spot
             : <div className="grid gap-2 sm:grid-cols-2">{browserStatus.map((status) => <div key={status.browser} className="flex items-center justify-between rounded-xl border border-black/[.06] px-4 py-3 dark:border-white/[.08]"><span className="text-sm font-semibold">{browserLabel[status.browser]}</span><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${status.connected ? "bg-lime/40 text-ink dark:bg-lime dark:text-ink" : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"}`}>{status.connected ? "Connected" : "Not connected"}</span></div>)}</div>}
         </div>
       </SettingsGrid>}
-      {section === "status" && <SettingsGrid title="Installed components" description="Pully checks these local executables before starting work.">
-        <div className="sm:col-span-2 rounded-xl border border-black/[.06] px-4 py-3 dark:border-white/[.08]">
-          <Toggle checked={draft.autoUpdate} onChange={(value) => update("autoUpdate", value)} label="Install app updates automatically" description="Checks on startup and daily. Installs signed updates after downloads and other work finish."/>
-          <div className="mt-3 flex items-center gap-3"><button type="button" className="secondary-button" disabled={["checking", "downloading", "installing"].includes(updateStatus.phase)} onClick={onCheckForUpdates}>Check for updates</button><span className="text-xs text-black/45 dark:text-white/40">{updateStatus.phase === "checking" ? "Checking..." : updateStatus.phase === "current" ? "Pully is up to date" : updateStatus.phase === "waiting" ? `Version ${updateStatus.version} waiting for idle time` : updateStatus.phase === "downloading" ? `Downloading ${updateStatus.version}${updateStatus.progress == null ? "" : ` (${updateStatus.progress}%)`}` : updateStatus.phase === "installing" ? "Installing update..." : updateStatus.phase === "error" ? "Update check or install failed" : ""}</span></div>
-          {updateStatus.phase === "error" && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-300">{updateStatus.message}</p>}
-        </div>
-        <StatusRow label="yt-dlp" value={dependencies?.ytDlp ?? "Not found"} ready={Boolean(dependencies?.ytDlp)} />
-        <StatusRow label="FFmpeg" value={dependencies?.ffmpeg ?? "Not found"} ready={Boolean(dependencies?.ffmpeg)} />
-        <StatusRow label="SpotiFLAC (beta)" value={dependencies?.spotiFlac ?? "Not found — needed only for Spotify links"} ready={Boolean(dependencies?.spotiFlac)} />
-        <div className="sm:col-span-2">
-          <button type="button" className="secondary-button" disabled={installingSpotiFlac} onClick={onInstallSpotiFlac}>{installingSpotiFlac ? "Installing SpotiFLAC..." : dependencies?.spotiFlac ? "Update SpotiFLAC" : "Install SpotiFLAC"}</button>
-          <p className="mt-2 text-xs text-black/45 dark:text-white/40">Uses Python 3 to install SpotiFLAC in Pully's app data folder. Required only for Spotify downloads.</p>
-          {spotiFlacInstallError && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-300">{spotiFlacInstallError}</p>}
-        </div>
-      </SettingsGrid>}
+      {section === "status" && <StatusPanel dependencies={dependencies} installing={installingSpotiFlac} progress={spotiFlacProgress} error={spotiFlacInstallError} onInstall={onInstallSpotiFlac} onVerify={onVerifyDependencies} updateStatus={updateStatus} onCheckForUpdates={onCheckForUpdates} autoUpdate={draft.autoUpdate} onAutoUpdate={(value) => update("autoUpdate", value)}/>}
       </motion.div>
       </TabsPrimitive.Content>
       </AnimatePresence>
@@ -179,4 +165,37 @@ export function SettingsPage({ settings, dependencies, installingSpotiFlac, spot
 
 function SettingsGrid({ title, description, children }: { title: string; description: string; children: ReactNode }) { return <><div className="mb-7"><h2 className="text-lg font-bold">{title}</h2><p className="mt-1 text-sm text-black/45 dark:text-white/40">{description}</p></div><div className="grid gap-x-10 gap-y-5 sm:grid-cols-2">{children}</div></>; }
 function SettingField({ label, children }: { label: string; children: ReactNode }) { return <label className="block"><span className="mb-2 block text-xs font-semibold text-black/55 dark:text-white/50">{label}</span>{children}</label>; }
-function StatusRow({ label, value, ready }: { label: string; value: string; ready: boolean }) { return <div className="flex items-center justify-between rounded-xl border border-black/[.06] px-4 py-3 dark:border-white/[.08]"><div><p className="text-sm font-semibold">{label}</p><p className="mt-0.5 max-w-[240px] truncate font-mono text-xs text-black/45 dark:text-white/40">{value}</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${ready ? "bg-lime/40 text-ink dark:bg-lime dark:text-ink" : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"}`}>{ready ? "Ready" : "Missing"}</span></div>; }
+function StatusPanel({ dependencies, installing, progress, error, onInstall, onVerify, updateStatus, onCheckForUpdates, autoUpdate, onAutoUpdate }: { dependencies?: DependencyInfo; installing: boolean; progress?: SetupProgress; error?: string; onInstall(): void; onVerify(): Promise<void>; updateStatus: UpdateStatus; onCheckForUpdates(): void; autoUpdate: boolean; onAutoUpdate(value: boolean): void }) {
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string>();
+  const verify = async () => { setVerifying(true); setVerifyError(undefined); try { await onVerify(); } catch (cause) { setVerifyError(String(cause)); } finally { setVerifying(false); } };
+  const tools = [
+    { name: "yt-dlp", description: "Finds and downloads media", version: dependencies?.ytDlp, required: true },
+    { name: "FFmpeg", description: "Merges and converts media", version: dependencies?.ffmpeg, required: true },
+    { name: "SpotiFLAC", description: "Optional Spotify provider ? beta", version: dependencies?.spotiFlac, required: false },
+  ];
+  return <div className="space-y-7">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div><h2 className="text-lg font-bold">System status</h2><p className="mt-1 text-sm text-black/50 dark:text-white/45">{!dependencies ? "Checking installed components?" : dependencies.ready ? "Pully is ready for downloads." : "Some required components need attention."}</p></div>
+      <button type="button" className="secondary-button" disabled={verifying || installing} onClick={() => void verify()}>{verifying ? "Checking?" : "Verify components"}</button>
+    </div>
+    {verifyError && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{verifyError}</p>}
+    <div><div className="mb-3 flex items-baseline justify-between"><h3 className="text-sm font-bold">Download components</h3><span className="text-xs text-black/40 dark:text-white/40">Checked on this device</span></div>
+      <div className="divide-y divide-black/[.07] overflow-hidden rounded-2xl bg-black/[.025] dark:divide-white/[.08] dark:bg-white/[.035]">
+      {tools.map((tool) => <div key={tool.name} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-4 sm:px-5">
+        <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${!dependencies ? "bg-black/20 dark:bg-white/20" : tool.version ? "bg-lime" : tool.required ? "bg-amber-500" : "bg-black/25 dark:bg-white/25"}`}/>
+        <div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-x-2"><span className="text-sm font-bold">{tool.name}</span><span className="text-xs text-black/45 dark:text-white/40">{tool.description}</span></div><p className="mt-1 break-all text-xs text-black/50 dark:text-white/50">{!dependencies ? "Checking?" : tool.version || (tool.required ? "Missing or unable to run" : "Not installed or incompatible")}</p></div>
+        {tool.name === "SpotiFLAC" && <button type="button" className="secondary-button" disabled={installing} onClick={onInstall}>{installing ? "Installing?" : tool.version ? "Update or repair" : "Install"}</button>}
+      </div>)}
+      </div>
+      {installing && <div role="status" className="mt-3 rounded-xl bg-black/[.025] px-4 py-3 text-sm dark:bg-white/[.035]"><span className="font-semibold">{progress?.message || "Preparing installation?"}</span><p className="mt-1 text-xs text-black/45 dark:text-white/40">This can take a few minutes. Your current installation is kept until the replacement is verified.</p></div>}
+      {error && <details open className="mt-3 rounded-xl bg-red-500/[.07] px-4 py-3 text-sm text-red-700 dark:text-red-300"><summary className="cursor-pointer font-semibold">Installation failed</summary><p className="mt-2 whitespace-pre-wrap break-words text-xs">{error}</p></details>}
+      <p className="mt-3 text-xs leading-relaxed text-black/45 dark:text-white/40">SpotiFLAC requires Python 3 and installs packages in Pully?s local app data. Installation and verification do not test whether a particular track is available.</p>
+      {dependencies && !dependencies.ready && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Install missing required components from the Home page.</p>}
+    </div>
+    <div className="border-t border-black/[.07] pt-6 dark:border-white/[.08]"><div className="mb-4"><h3 className="text-sm font-bold">Pully updates</h3><p className="mt-1 text-xs text-black/45 dark:text-white/40">Installed version {dependencies?.pully ?? "?"}</p></div>
+      <Toggle checked={autoUpdate} onChange={onAutoUpdate} label="Install app updates automatically" description="Checks on startup and daily; installs signed updates when Pully is idle."/>
+      <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" className="secondary-button" disabled={["checking", "downloading", "installing"].includes(updateStatus.phase)} onClick={onCheckForUpdates}>Check for updates</button><span role="status" className="text-xs text-black/50 dark:text-white/45">{updateStatus.phase === "checking" ? "Checking?" : updateStatus.phase === "current" ? "Pully is up to date" : updateStatus.phase === "waiting" ? `Version ${updateStatus.version} waiting for idle time` : updateStatus.phase === "downloading" ? `Downloading ${updateStatus.version}${updateStatus.progress == null ? "" : ` (${updateStatus.progress}%)`}` : updateStatus.phase === "installing" ? "Installing update?" : updateStatus.phase === "error" ? updateStatus.message : ""}</span></div>
+    </div>
+  </div>;
+}

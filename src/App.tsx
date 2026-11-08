@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { Check, DownloadCloud, Link2, Moon, Sun, Zap } from "lucide-react";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { Check, DownloadCloud, Home, Library, ListMusic, PanelLeftClose, PanelLeftOpen, Settings, Activity, Link2, Moon, Sun, Zap } from "lucide-react";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { Brand } from "./components/Brand";
@@ -18,6 +18,7 @@ import { interactionSpring } from "./lib/animation";
 import { HomePage } from "./pages/HomePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { DownloadsPage } from "./pages/DownloadsPage";
+import { SyncPage } from "./pages/SyncPage";
 import type { DependencyInfo, DownloadRequest, MediaInfo, SetupProgress } from "./types/media";
 
 function colorChannels(hex: string) {
@@ -92,9 +93,13 @@ function friendlyError(value: unknown) {
   return text.replace(/^.*?: /, "") || "Something went wrong while analyzing this link.";
 }
 
+type Page = "home" | "downloads" | "sync" | "library" | "status" | "settings";
+
 export default function App() {
-  const [navigation, setNavigation] = useState<{ entries: ("home" | "downloads" | "settings")[]; index: number }>({ entries: ["home"], index: 0 });
+  const [navigation, setNavigation] = useState<{ entries: Page[]; index: number }>({ entries: ["home"], index: 0 });
   const page = navigation.entries[navigation.index];
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const reduceMotion = useReducedMotion();
   const [url, setUrl] = useState("");
   const [media, setMedia] = useState<MediaInfo>();
   const [analyzing, setAnalyzing] = useState(false);
@@ -175,6 +180,7 @@ export default function App() {
   const installSpotiFlac = async () => {
     setInstallingSpotiFlac(true);
     setSpotiFlacInstallError(undefined);
+    setInstallProgress((current) => { const next = { ...current }; delete next.spotiflac; return next; });
     try {
       setDependencies(await api.installSpotiFlac());
     } catch (caught) {
@@ -260,13 +266,12 @@ export default function App() {
     } catch { /* Clipboard permission is optional. */ }
   };
   const toggleTheme = () => saveSettings({ ...settings, theme: dark ? "light" : "dark" });
-  const navigate = (target: "home" | "downloads" | "settings") => setNavigation((current) => {
+  const navigate = (target: Page) => setNavigation((current) => {
     if (current.entries[current.index] === target) return current;
     return { entries: [...current.entries.slice(0, current.index + 1), target], index: current.index + 1 };
   });
   const goBack = () => setNavigation((current) => ({ ...current, index: Math.max(0, current.index - 1) }));
   const goForward = () => setNavigation((current) => ({ ...current, index: Math.min(current.entries.length - 1, current.index + 1) }));
-  const showDownloads = () => navigate("downloads");
   const goHome = () => {
     setUrl("");
     setMedia(undefined);
@@ -334,18 +339,23 @@ export default function App() {
   return <MotionConfig reducedMotion="user" transition={interactionSpring}>
     <main onDragOver={onDragOver} onDrop={onDrop} className="relative min-h-screen bg-canvas pt-10 text-ink transition-colors duration-200 dark:text-[#eef2ea]">
       <TitleBar canGoBack={navigation.index > 0} canGoForward={navigation.index < navigation.entries.length - 1} reloadDisabled={hasActiveDownloads} settingsActive={page === "settings"} onBack={goBack} onForward={goForward} onSettings={() => navigate("settings")}/>
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-7 py-6">
-        <motion.button whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={interactionSpring} className="brand-button" onClick={goHome} aria-label="Home"><Brand /></motion.button>
-        <div className="flex items-center gap-2">
-          <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.92 }} transition={interactionSpring} className={`header-button ${settings.quickMode ? "bg-lime/25 text-ink dark:text-white" : ""}`} title={settings.quickMode ? "Quick mode on — downloads start instantly with your preset" : "Turn on quick mode"} aria-label="Toggle quick mode" aria-pressed={settings.quickMode} onClick={toggleQuickMode}><Zap size={18} fill={settings.quickMode ? "currentColor" : "none"}/></motion.button>
-          <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.92 }} transition={interactionSpring} className="header-button" title="Downloads" aria-label="Downloads" onClick={showDownloads}><DownloadCloud size={18}/></motion.button>
-          <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.92 }} transition={interactionSpring} className="header-button" title="Toggle theme" aria-label="Toggle theme" onClick={toggleTheme}><AnimatePresence mode="wait" initial={false}><motion.span key={dark ? "sun" : "moon"} initial={{ opacity: 0, rotate: -20, scale: 0.8 }} animate={{ opacity: 1, rotate: 0, scale: 1 }} exit={{ opacity: 0, rotate: 20, scale: 0.8 }} transition={{ duration: 0.14 }} className="grid place-items-center">{dark ? <Sun size={18}/> : <Moon size={18}/>}</motion.span></AnimatePresence></motion.button>
+      <div className={`app-layout ${sidebarCollapsed ? "app-layout--collapsed" : ""}`}>
+        <aside className="app-sidebar" aria-label="Main navigation">
+          <div className="sidebar-brand"><button onClick={goHome} aria-label="Pully home"><Brand /></button><button className="sidebar-collapse" onClick={() => setSidebarCollapsed((value) => !value)} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}</button></div>
+          <nav className="sidebar-nav">
+            <p className="sidebar-heading">Main</p>
+            {([{ id: "home", label: "Home", icon: Home }, { id: "downloads", label: "Downloads", icon: DownloadCloud }, { id: "sync", label: "Synced playlists", icon: ListMusic }, { id: "library", label: "Library", icon: Library }] as const).map(({ id, label, icon: Icon }) => <button key={id} className={`sidebar-link ${page === id ? "is-active" : ""}`} title={label} aria-label={label} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}>{page === id && <motion.div layoutId="sidebar-active" className="sidebar-active-indicator" transition={reduceMotion ? { duration: 0 } : interactionSpring}/>}<Icon size={17}/><span>{label}</span>{id === "downloads" && hasActiveDownloads && <i aria-label="Downloads active"/>}</button>)}
+            <p className="sidebar-heading sidebar-heading--second">Application</p>
+            {([{ id: "status", label: "Status", icon: Activity }, { id: "settings", label: "Settings", icon: Settings }] as const).map(({ id, label, icon: Icon }) => <button key={id} className={`sidebar-link ${page === id ? "is-active" : ""}`} title={label} aria-label={label} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}>{page === id && <motion.div layoutId="sidebar-active" className="sidebar-active-indicator" transition={reduceMotion ? { duration: 0 } : interactionSpring}/>}<Icon size={17}/><span>{label}</span></button>)}
+          </nav>
+          <div className="sidebar-footer"><button className={`sidebar-link ${settings.quickMode ? "is-active" : ""}`} title="Toggle quick mode" aria-label="Toggle quick mode" aria-pressed={settings.quickMode} onClick={toggleQuickMode}><Zap size={17}/><span>Quick mode {settings.quickMode ? "on" : "off"}</span></button><button className="sidebar-link" title="Toggle theme" aria-label="Toggle theme" onClick={toggleTheme}>{dark ? <Sun size={17}/> : <Moon size={17}/>}<span>{dark ? "Light mode" : "Dark mode"}</span></button></div>
+        </aside>
+        <div className="app-content">
+          <AnimatePresence mode="wait" initial={false}>
+            {page === "settings" || page === "status" ? <SettingsPage key={page} initialSection={page === "status" ? "status" : "general"} settings={settings} dependencies={dependencies} installingSpotiFlac={installingSpotiFlac} spotiFlacProgress={installProgress.spotiflac} onVerifyDependencies={() => api.dependencies().then(setDependencies)} spotiFlacInstallError={spotiFlacInstallError} onInstallSpotiFlac={() => void installSpotiFlac()} updateStatus={updater.status} onCheckForUpdates={() => void updater.checkForUpdates(true)} onSave={savePreferences} onReset={resetSettings}/> : page === "downloads" || page === "library" ? <DownloadsPage key={page} library={page === "library"} items={downloads.downloads} onCancel={(id) => void downloads.cancel(id)} onRetry={(id) => void downloads.retry(id)} onRemove={(id) => void downloads.remove(id)} onOpen={(id) => void downloads.openFile(id)} onReveal={(id) => void downloads.revealFile(id)}/> : page === "sync" ? <SyncPage key="sync" settings={settings}/> : <HomePage key="home" updateStatus={updater.status} url={url} analyzing={analyzing} quickBusy={quickBusy} error={error} dependencies={dependencies} installing={installing} installProgress={installProgress} installError={installError} media={media} settings={settings} browserTabs={browserTabs} onUrlChange={setUrl} onSubmit={submitUrl} onPaste={() => void paste()} onInstall={() => void installDependencies()} onAnalyze={(target) => void analyze(target)} onQuickDownload={(target) => void quickDownload(target)} onDownload={queueDownload}/>}
+          </AnimatePresence>
         </div>
-      </header>
-
-      <AnimatePresence mode="wait" initial={false}>
-        {page === "settings" ? <SettingsPage key="settings" settings={settings} dependencies={dependencies} installingSpotiFlac={installingSpotiFlac} spotiFlacInstallError={spotiFlacInstallError} onInstallSpotiFlac={() => void installSpotiFlac()} updateStatus={updater.status} onCheckForUpdates={() => void updater.checkForUpdates(true)} onSave={savePreferences} onReset={resetSettings}/> : page === "downloads" ? <DownloadsPage key="downloads" items={downloads.downloads} onCancel={(id) => void downloads.cancel(id)} onRetry={(id) => void downloads.retry(id)} onRemove={(id) => void downloads.remove(id)} onOpen={(id) => void downloads.openFile(id)} onReveal={(id) => void downloads.revealFile(id)}/> : <HomePage key="home" updateStatus={updater.status} url={url} analyzing={analyzing} quickBusy={quickBusy} error={error} dependencies={dependencies} installing={installing} installProgress={installProgress} installError={installError} media={media} settings={settings} browserTabs={browserTabs} onUrlChange={setUrl} onSubmit={submitUrl} onPaste={() => void paste()} onInstall={() => void installDependencies()} onAnalyze={(target) => void analyze(target)} onQuickDownload={(target) => void quickDownload(target)} onDownload={queueDownload}/>}
-      </AnimatePresence>
+      </div>
       <AnimatePresence>{toast && <Toast key={toast} message={toast} onClose={() => setToast(undefined)}/>}</AnimatePresence>
       <AnimatePresence>
         {dropState !== "idle" && <motion.div key="drop-overlay" className="pointer-events-none fixed inset-0 z-[80] grid place-items-center bg-canvas/85" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.08, ease: [0.22, 1, 0.36, 1] }}>

@@ -37,7 +37,19 @@ pub fn map_process_error(stderr: &str) -> PullyError {
         .collect::<Vec<_>>()
         .join("\n");
     let lower = stderr.to_lowercase();
-    if lower.contains("unsupported url") || lower.contains("no video formats found") {
+    let drm_error = lower.lines().any(|line| {
+        line.contains("error:")
+            && (line.contains("drm protected") || line.contains("drm-protected"))
+    });
+    if drm_error && lower.contains("[soundcloud]") {
+        PullyError::ProcessFailed(format!(
+            "SoundCloud did not provide a format yt-dlp can download for this track. It may only be available with DRM protection. Check for an official download from the artist, or try again with an up-to-date yt-dlp.\n{stderr}"
+        ))
+    } else if drm_error {
+        PullyError::ProcessFailed(format!(
+            "This item is reported as DRM protected and cannot be downloaded by yt-dlp.\n{stderr}"
+        ))
+    } else if lower.contains("unsupported url") || lower.contains("no video formats found") {
         PullyError::Unsupported(stderr.to_string())
     } else if lower.contains("private video")
         || lower.contains("sign in")
@@ -101,5 +113,19 @@ mod tests {
         let error = map_process_error("PULLY_PROCESSING\nERROR: unable to download video data: HTTP Error 403: Forbidden\nPULLY_PROCESSING").to_string();
         assert!(!error.contains("PULLY_PROCESSING"));
         assert!(error.contains("HTTP 403"));
+    }
+
+    #[test]
+    fn explains_soundcloud_drm_errors_without_misclassifying_warnings() {
+        let error =
+            map_process_error("ERROR: [soundcloud] 2345189036: This video is DRM protected")
+                .to_string();
+        assert!(error.contains("SoundCloud did not provide a format"));
+        assert!(error.contains("official download"));
+        assert!(error.contains("2345189036"));
+        let other =
+            map_process_error("WARNING: DRM protected format skipped\nERROR: network timeout")
+                .to_string();
+        assert!(!other.contains("reported as DRM protected"));
     }
 }

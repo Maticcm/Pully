@@ -41,9 +41,39 @@ pub fn parse_event(line: &str) -> Option<SpotiFlacEvent> {
     serde_json::from_str(trimmed).ok()
 }
 
+/// The public CLI emits one complete JSON report at exit, not NDJSON events.
+#[derive(Debug, Deserialize)]
+pub struct RunReport {
+    pub schema_version: u32,
+    pub tracks: Vec<TrackRecord>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TrackRecord {
+    pub id: String,
+    pub title: String,
+    pub artists: Option<String>,
+    pub status: String,
+    pub file_path: Option<String>,
+    pub error: Option<String>,
+}
+
+pub fn parse_report(lines: &[String]) -> Option<RunReport> {
+    let report: RunReport = serde_json::from_str(&lines.join("\n")).ok()?;
+    (report.schema_version == 1).then_some(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_public_cli_multiline_report() {
+        let lines = ["{", "\"schema_version\": 1,", "\"tracks\": [{\"id\":\"abc\",\"title\":\"Song\",\"artists\":\"Artist\",\"status\":\"failed\",\"file_path\":null,\"error\":\"unavailable\"}]", "}"].map(str::to_string);
+        let report = parse_report(&lines).unwrap();
+        assert_eq!(report.tracks[0].status, "failed");
+        assert_eq!(report.tracks[0].error.as_deref(), Some("unavailable"));
+    }
 
     #[test]
     fn parses_progress_events() {

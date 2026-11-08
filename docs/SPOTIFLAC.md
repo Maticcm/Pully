@@ -27,9 +27,14 @@ The **Settings → Status → Install SpotiFLAC** button performs this install
 inside a Pully-owned Python virtual environment. Python 3 must already be
 installed, but the button does not change packages in the system Python
 environment. Pully detects the new CLI immediately; restarting is unnecessary.
-Each install/update rebuilds this dedicated environment so changing Python
-versions cannot leave incompatible native dependencies behind. If the CLI
-cannot start, Pully reports its startup error separately from missing options.
+Each install or repair creates a separate environment at its final path and checks
+the CLI before activating it. The previous environment remains available if
+installation fails or activation is interrupted. Old environments are retained
+for recovery and may use disk space. Verification checks the CLI contract; it
+does not confirm that an external provider can retrieve a particular track.
+Packages are installed by pip from its configured package index; Pully does not
+independently pin package hashes. If the CLI cannot start, Pully reports its
+startup error separately from missing options.
 
 Analysis reads Spotify's public metadata endpoint directly, so the card shows
 the real title, creator, duration, and artwork before download. For downloads,
@@ -69,3 +74,11 @@ Cancellation terminates the SpotiFLAC process tree and removes its temporary
 directory. Builds that emit newline-delimited JSON progress events remain
 compatible, but JSON output is not required. The standard public CLI shows an
 indeterminate downloading state until its output files are finalized.
+
+## Playlist synchronization
+
+New Spotify subscriptions use the CLI's `--playlist` mode, rather than Spotify's Web API. Pully schedules each run through its download queue. SpotiFLAC indexes a dedicated folder beneath the chosen destination and attempts only missing tracks; it can also generate an M3U8 file. This requires a CLI with `--playlist`, `--m3u`, `--no-fallback`, `--subscribe`, and `--check-subscriptions`; the integration has been checked against version 5.0.6. Older Spotify subscriptions without a destination are paused; remove and re-add one to select a folder. Pully does not delete local files when tracks disappear from a playlist.
+
+Pully asks SpotiFLAC for an ordered snapshot of track IDs using its subscription commands and an isolated temporary database. Pully compares snapshots to report additions, removals and reorderings. SpotiFLAC is a third-party provider; availability, matching, and lossless output depend on its services. A successful real-provider playlist download and restart recovery have not yet been verified for this integration.
+
+SpotiFLAC's subscription and playlist modes de-duplicate repeated tracks, so Pully currently compares and writes the order of distinct tracks rather than preserving repeated playlist entries.

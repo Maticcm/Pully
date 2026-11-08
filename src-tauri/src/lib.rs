@@ -8,6 +8,7 @@ mod models;
 mod process;
 mod setup;
 mod startup;
+mod sync;
 
 use browser_integration::ipc::BrowserIntegration;
 use commands::discover_dependencies;
@@ -102,6 +103,9 @@ pub fn run() {
             ));
             let native_host = dependencies.native_host.clone();
             app.manage(Mutex::new(dependencies));
+            let sync_path = app.path().app_data_dir()?.join("synced-playlists.json");
+            app.manage(sync::SyncManager::load(sync_path));
+            sync::start(app.handle().clone());
 
             let browser_integration = BrowserIntegration::default();
             if let Some(token) = browser_integration::pipe_auth::issue_token() {
@@ -190,6 +194,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            sync::list_synced_playlists,
+            sync::add_synced_playlist,
+            sync::change_synced_playlist,
             commands::analyze_url,
             commands::dependency_info,
             commands::start_download,

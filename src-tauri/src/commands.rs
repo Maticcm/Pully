@@ -63,6 +63,13 @@ pub fn discover_dependencies(app: &AppHandle) -> Dependencies {
             name.to_string()
         };
         let mut candidates = Vec::new();
+        if name == "spotiflac" {
+            if let Some(path) =
+                crate::setup::tools_dir(app).and_then(|dir| crate::setup::managed_spotiflac(&dir))
+            {
+                candidates.push(path);
+            }
+        }
         if let Ok(resources) = app.path().resource_dir() {
             candidates.push(resources.join("binaries").join(&exe));
             candidates.push(resources.join(&exe));
@@ -171,13 +178,25 @@ fn dependency_info_snapshot(dependencies: &Dependencies) -> DependencyInfo {
 
 #[tauri::command]
 pub async fn dependency_info(
+    app: AppHandle,
     dependencies: State<'_, Mutex<Dependencies>>,
+    manager: State<'_, DownloadManager>,
 ) -> Result<DependencyInfo> {
-    let snapshot = dependencies
+    let fresh = discover_dependencies(&app);
+    let snapshot = inspect_dependencies(fresh.clone()).await?;
+    manager.update_paths(
+        fresh
+            .yt_dlp
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("yt-dlp")),
+        fresh.spotiflac.clone(),
+        fresh.ffmpeg.clone(),
+        fresh.deno.clone(),
+    );
+    *dependencies
         .lock()
-        .map_err(|_| PullyError::Internal("Dependency state unavailable.".into()))?
-        .clone();
-    inspect_dependencies(snapshot).await
+        .map_err(|_| PullyError::Internal("Dependency state unavailable.".into()))? = fresh;
+    Ok(snapshot)
 }
 
 async fn inspect_dependencies(dependencies: Dependencies) -> Result<DependencyInfo> {

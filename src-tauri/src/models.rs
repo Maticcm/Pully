@@ -112,6 +112,10 @@ pub struct DownloadProgress {
     pub id: String,
     pub title: String,
     pub thumbnail: Option<String>,
+    #[serde(default)]
+    pub sync_managed: bool,
+    #[serde(default)]
+    pub sync_finalized: bool,
     pub status: DownloadStatus,
     pub percent: f64,
     pub downloaded_bytes: Option<u64>,

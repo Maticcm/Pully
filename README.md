@@ -60,6 +60,10 @@ Pully supports media sources available through its installed providers:
 
 Availability can vary by source and media item. Pully does not implement DRM, authentication, subscription, or access-control bypasses. Only download media you are permitted to save.
 
+## Playlist synchronization
+
+The Synced playlists page can schedule yt-dlp collections while Pully is open or in the system tray. Each collection uses a local yt-dlp download archive to skip items already recorded as downloaded. Pully compares playlist snapshots, can restore missing files whose paths it has tracked, and can generate an M3U8 playlist. Pausing prevents future runs; a running job continues until it finishes or is cancelled from Downloads. Removing a sync never deletes media. Spotify playlists use the installed SpotiFLAC CLI's incremental playlist mode and save FLAC files in a dedicated folder. This requires a compatible CLI with playlist and subscription commands; SpotiFLAC 5.0.6 has been checked. Older Spotify subscriptions without a destination are paused and can be removed and re-added to select a folder. Files downloaded before path tracking was introduced may not be restored or included in the M3U8 file.
+
 ## Browser integration
 
 The optional Chromium extension removes the copy-and-paste step:

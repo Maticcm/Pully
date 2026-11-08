@@ -63,6 +63,8 @@ export type DownloadProgress = {
   title: string;
   thumbnail?: string;
   status: DownloadStatus;
+  syncManaged?: boolean;
+  syncFinalized?: boolean;
   percent: number;
   downloadedBytes?: number;
   totalBytes?: number;
@@ -74,7 +76,7 @@ export type DownloadProgress = {
 
 export type DependencyInfo = { pully: string; ytDlp?: string; ffmpeg?: string; spotiFlac?: string; ready: boolean; issues: string[] };
 
-export type SetupProgress = { tool: "yt-dlp" | "ffmpeg" | "spotiflac"; percent: number; stage: "downloading" | "extracting" | "installing" | "done" | "error"; message?: string };
+export type SetupProgress = { tool: "yt-dlp" | "ffmpeg" | "spotiflac"; percent: number; stage: "downloading" | "extracting" | "installing" | "verifying" | "done" | "error"; message?: string };
 
 export type BrowserName = "chrome" | "brave" | "edge" | "other";
 
@@ -94,3 +96,5 @@ export type DetectedTab = {
 };
 
 export type BrowserConnectionStatus = { browser: BrowserName; connected: boolean };
+
+export type SyncedPlaylist = { id: string; request: DownloadRequest; intervalMinutes: number; paused: boolean; nextRun: number; lastSuccess?: number; error?: string; jobId?: string; spotifyDownload?: boolean; changes?: string; history?: { finishedAt: number; outcome: string; details?: string }[] };

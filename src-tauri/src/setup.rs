@@ -8,7 +8,13 @@
 use crate::process::hidden_command;
 use futures_util::StreamExt;
 use serde::Serialize;
-use std::{fs, io::Write, path::Path, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 const YT_DLP_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
@@ -152,18 +158,66 @@ pub async fn install_missing(
     Ok(())
 }
 
-/// Installs the optional Spotify CLI into an isolated environment owned by
-/// Pully. A system Python is required, but its packages are never modified.
+/// The pointer contains only an app-generated directory name, never an arbitrary path.
+pub fn managed_spotiflac(dir: &Path) -> Option<PathBuf> {
+    for pointer in ["spotiflac-active", "spotiflac-active.bak"] {
+        let Ok(name) = fs::read_to_string(dir.join(pointer)) else {
+            continue;
+        };
+        let name = name.trim();
+        if !name
+            .strip_prefix("spotiflac-env-")
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+        {
+            continue;
+        }
+        let executable = dir.join(name).join(if cfg!(windows) {
+            "Scripts/spotiflac.exe"
+        } else {
+            "bin/spotiflac"
+        });
+        if executable.is_file() {
+            return Some(executable);
+        }
+    }
+    None
+}
+
+static SPOTIFLAC_INSTALLING: AtomicBool = AtomicBool::new(false);
+struct InstallGuard;
+impl Drop for InstallGuard {
+    fn drop(&mut self) {
+        SPOTIFLAC_INSTALLING.store(false, Ordering::Release);
+    }
+}
+
+/// Build in a new, non-relocated venv: Python entry points embed its absolute path.
 pub async fn install_spotiflac(app: &AppHandle) -> Result<(), String> {
+    if SPOTIFLAC_INSTALLING
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return Err("A SpotiFLAC installation is already running.".into());
+    }
+    let guard = InstallGuard;
     let dir = tools_dir(app).ok_or("Could not resolve Pully's app data directory.")?;
     fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
-    emit(app, "spotiflac", 0.0, "installing", None);
-    let result = tauri::async_runtime::spawn_blocking(move || install_spotiflac_blocking(&dir))
-        .await
-        .map_err(|e| e.to_string())?;
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        install_spotiflac_blocking(&handle, &dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     match result {
         Ok(()) => {
-            emit(app, "spotiflac", 100.0, "done", None);
+            emit(
+                app,
+                "spotiflac",
+                100.0,
+                "done",
+                Some("SpotiFLAC is ready.".into()),
+            );
             Ok(())
         }
         Err(error) => {
@@ -173,7 +227,14 @@ pub async fn install_spotiflac(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-fn install_spotiflac_blocking(dir: &Path) -> Result<(), String> {
+fn install_spotiflac_blocking(app: &AppHandle, dir: &Path) -> Result<(), String> {
+    emit(
+        app,
+        "spotiflac",
+        0.0,
+        "installing",
+        Some("Checking Python".into()),
+    );
     let candidates: &[(&str, &[&str])] = if cfg!(windows) {
         &[("py", &["-3"]), ("python", &[])]
     } else {
@@ -182,66 +243,149 @@ fn install_spotiflac_blocking(dir: &Path) -> Result<(), String> {
     let (python, prefix) = candidates
         .iter()
         .find(|(python, prefix)| {
-            hidden_command(python)
-                .args(*prefix)
-                .arg("--version")
-                .output()
-                .is_ok_and(|output| output.status.success())
+            crate::process::output_with_timeout(
+                hidden_command(python).args(*prefix).arg("--version"),
+                std::time::Duration::from_secs(10),
+            )
+            .is_ok_and(|output| output.status.success())
         })
         .ok_or("Python 3 was not found. Install Python 3, then try again.")?;
-    let environment = dir.join("spotiflac-env");
-    // Reusing site-packages after recreating a venv with a different Python
-    // leaves incompatible native wheels behind. Rebuild this app-owned venv.
-    // Check its resolved location before Python clears the directory.
-    let tools = dir
-        .canonicalize()
-        .map_err(|e| format!("Could not resolve the tools folder: {e}"))?;
-    if environment.exists()
-        && environment
-            .canonicalize()
-            .map_err(|e| format!("Could not resolve the SpotiFLAC environment: {e}"))?
-            != tools.join("spotiflac-env")
-    {
-        return Err("The SpotiFLAC environment points outside Pully's tools folder.".into());
-    }
-    let create = hidden_command(python)
-        .args(*prefix)
-        .args(["-m", "venv", "--clear"])
-        .arg(&environment)
-        .output()
+    let name = format!("spotiflac-env-{}", uuid::Uuid::new_v4());
+    let environment = dir.join(&name);
+    let result = (|| {
+        emit(
+            app,
+            "spotiflac",
+            0.0,
+            "installing",
+            Some("Creating an isolated environment".into()),
+        );
+        let create = crate::process::output_with_timeout(
+            hidden_command(python)
+                .args(*prefix)
+                .args(["-m", "venv"])
+                .arg(&environment),
+            std::time::Duration::from_secs(180),
+        )
         .map_err(|e| format!("Could not create the SpotiFLAC environment: {e}"))?;
-    if !create.status.success() {
-        return Err(format!(
-            "Could not create the SpotiFLAC environment: {}",
-            String::from_utf8_lossy(&create.stderr).trim()
-        ));
-    }
-    let venv_python = if cfg!(windows) {
-        environment.join("Scripts").join("python.exe")
-    } else {
-        environment.join("bin").join("python")
-    };
-    let install = hidden_command(&venv_python)
-        .args([
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--upgrade",
-            "SpotiFLAC>=4.1.2",
-        ])
-        .output()
+        if !create.status.success() {
+            return Err(format!(
+                "Could not create the SpotiFLAC environment: {}",
+                String::from_utf8_lossy(&create.stderr).trim()
+            ));
+        }
+        let venv_python = environment.join(if cfg!(windows) {
+            "Scripts/python.exe"
+        } else {
+            "bin/python"
+        });
+        emit(
+            app,
+            "spotiflac",
+            0.0,
+            "downloading",
+            Some("Downloading and installing SpotiFLAC packages".into()),
+        );
+        let install = crate::process::output_with_timeout(
+            hidden_command(&venv_python).args([
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--upgrade",
+                "SpotiFLAC>=4.1.2",
+            ]),
+            std::time::Duration::from_secs(900),
+        )
         .map_err(|e| format!("Could not start pip: {e}"))?;
-    if !install.status.success() {
-        return Err(format!(
-            "SpotiFLAC installation failed: {}",
-            String::from_utf8_lossy(&install.stderr).trim()
-        ));
+        if !install.status.success() {
+            return Err(format!(
+                "SpotiFLAC installation failed: {}",
+                String::from_utf8_lossy(&install.stderr).trim()
+            ));
+        }
+        let executable = environment.join(if cfg!(windows) {
+            "Scripts/spotiflac.exe"
+        } else {
+            "bin/spotiflac"
+        });
+        emit(
+            app,
+            "spotiflac",
+            0.0,
+            "verifying",
+            Some("Checking the installed command".into()),
+        );
+        crate::downloader::verify_spotiflac_sync_contract(&executable)?;
+        emit(
+            app,
+            "spotiflac",
+            0.0,
+            "installing",
+            Some("Activating the verified installation".into()),
+        );
+        activate_spotiflac(dir, &name)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&environment);
     }
-    let executable = if cfg!(windows) {
-        environment.join("Scripts").join("spotiflac.exe")
-    } else {
-        environment.join("bin").join("spotiflac")
-    };
-    crate::downloader::verify_spotiflac_cli(&executable)
+    result
+}
+
+fn activate_spotiflac(dir: &Path, name: &str) -> Result<(), String> {
+    let active = dir.join("spotiflac-active");
+    let backup = dir.join("spotiflac-active.bak");
+    let pending = dir.join("spotiflac-active.new");
+    fs::write(&pending, name).map_err(|e| format!("Could not prepare installation: {e}"))?;
+    if active.exists() {
+        if backup.exists() {
+            fs::remove_file(&backup)
+                .map_err(|e| format!("Could not replace installation backup: {e}"))?;
+        }
+        fs::rename(&active, &backup)
+            .map_err(|e| format!("Could not preserve the previous installation: {e}"))?;
+    }
+    if let Err(e) = fs::rename(&pending, &active) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, &active);
+        }
+        return Err(format!("Could not activate SpotiFLAC: {e}"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn environment(dir: &Path) -> (String, PathBuf) {
+        let name = format!("spotiflac-env-{}", uuid::Uuid::new_v4());
+        let binary = dir.join(&name).join(if cfg!(windows) {
+            "Scripts/spotiflac.exe"
+        } else {
+            "bin/spotiflac"
+        });
+        fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        fs::write(&binary, b"fixture").unwrap();
+        (name, binary)
+    }
+
+    #[test]
+    fn activation_preserves_previous_installation_and_recovers_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let (old, old_binary) = environment(dir.path());
+        let (new, new_binary) = environment(dir.path());
+        activate_spotiflac(dir.path(), &old).unwrap();
+        activate_spotiflac(dir.path(), &new).unwrap();
+        assert_eq!(managed_spotiflac(dir.path()), Some(new_binary));
+        fs::remove_file(dir.path().join("spotiflac-active")).unwrap();
+        assert_eq!(managed_spotiflac(dir.path()), Some(old_binary));
+    }
+
+    #[test]
+    fn pointer_cannot_escape_tools_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("spotiflac-active"), "../external").unwrap();
+        assert!(managed_spotiflac(dir.path()).is_none());
+    }
 }
