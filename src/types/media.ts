@@ -16,7 +16,7 @@ export type MediaFormat = {
 
 export type SubtitleTrack = { language: string; name?: string; automatic: boolean; extensions: string[] };
 
-export type PlaylistItem = { id: string; title: string; url: string; thumbnail?: string; duration?: number };
+export type PlaylistItem = { index: number; id: string; title: string; url: string; thumbnail?: string; duration?: number };
 
 export type MediaInfo = {
   id: string;
@@ -47,6 +47,7 @@ export type DownloadRequest = {
   filenameTemplate?: string;
   isPlaylist: boolean;
   playlistFolder: boolean;
+  playlistIndices?: number[];
   existingFileBehavior: "skip" | "overwrite";
   embedMetadata: boolean;
   embedThumbnail: boolean;

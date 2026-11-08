@@ -95,3 +95,7 @@ A tour of what Pully currently does, grouped by area. For setup and build instru
 - **No shell execution** — every external tool (yt-dlp, FFmpeg, the SpotiFLAC adapter) is invoked with argument arrays, never through a shell, so link/title/format values can't be used for command injection.
 - **No access-control bypass** — Pully does not implement or embed any DRM, authentication, or subscription bypass for any provider; it only orchestrates locally installed tools that you provide.
 - **Locally persisted settings** — all preferences are stored on-device; there's no account and no remote sync.
+
+### Collection selection
+
+Paste a playlist or channel URL to review its items. Every listed item starts selected; click a video row to tick or untick it, or use Select all and Clear all before downloading. Search finds videos by title, and the Selected filter lets you review your choices. Filtering does not change the selection; the footer always shows the total selection and downloads all selected items. Empty selections cannot be queued. The yt-dlp collection preview has no 100-item cap and lists entries without analyzing every video. Quality is resolved to the best available per item for flat collections. YouTube channel root links open the Videos uploads tab; explicit `/shorts` and `/streams` links review those tabs instead. Optional SpotiFLAC collections retain whole-collection downloading because that provider does not expose a selectable item list.

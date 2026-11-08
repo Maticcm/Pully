@@ -27,6 +27,9 @@ The **Settings → Status → Install SpotiFLAC** button performs this install
 inside a Pully-owned Python virtual environment. Python 3 must already be
 installed, but the button does not change packages in the system Python
 environment. Pully detects the new CLI immediately; restarting is unnecessary.
+Each install/update rebuilds this dedicated environment so changing Python
+versions cannot leave incompatible native dependencies behind. If the CLI
+cannot start, Pully reports its startup error separately from missing options.
 
 Analysis reads Spotify's public metadata endpoint directly, so the card shows
 the real title, creator, duration, and artwork before download. For downloads,

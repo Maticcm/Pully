@@ -27,6 +27,8 @@ impl YtDlpExtractor {
 impl MediaExtractor for YtDlpExtractor {
     fn analyze(&self, url: &str) -> Result<MediaInfo> {
         validate_url(url)?;
+        let collection_url = channel_videos_url(url);
+        let url = collection_url.as_str();
         let mut args: Vec<String> = vec![
             "--ignore-config".into(),
             "--dump-single-json".into(),
@@ -38,7 +40,7 @@ impl MediaExtractor for YtDlpExtractor {
             "extractor:linear=0.5:1.5:0.5".into(),
         ];
         args.extend(crate::extractors::js_runtime_args(self.deno.as_deref()));
-        args.extend(["--playlist-end".into(), "100".into()]);
+        args.push("--flat-playlist".into());
         if is_youtube_mix_url(url) {
             args.push("--no-playlist".into());
         }
@@ -69,6 +71,23 @@ impl MediaExtractor for YtDlpExtractor {
     }
 }
 
+fn channel_videos_url(input: &str) -> String {
+    let Ok(mut url) = url::Url::parse(input) else {
+        return input.into();
+    };
+    let host = url.host_str().unwrap_or("");
+    if !matches!(host, "youtube.com" | "www.youtube.com" | "m.youtube.com") {
+        return input.into();
+    }
+    let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
+    let is_root = (parts.len() == 1 && parts[0].starts_with('@'))
+        || (parts.len() == 2 && matches!(parts[0], "channel" | "c" | "user"));
+    if is_root {
+        url.set_path(&format!("{}/videos", url.path().trim_end_matches('/')));
+    }
+    url.into()
+}
+
 fn text(value: &Value, key: &str) -> Option<String> {
     value
         .get(key)?
@@ -87,14 +106,26 @@ pub fn parse_media_info(value: &Value, fallback_url: &str) -> Result<MediaInfo> 
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| {
+                .enumerate()
+                .filter_map(|(position, item)| {
                     Some(PlaylistItem {
+                        index: item
+                            .get("playlist_index")
+                            .and_then(Value::as_u64)
+                            .map(|n| n as usize)
+                            .filter(|n| *n > 0)
+                            .unwrap_or(position + 1),
                         id: text(item, "id")?,
                         title: text(item, "title").unwrap_or_else(|| "Untitled".into()),
                         url: text(item, "webpage_url")
                             .or_else(|| text(item, "url"))
                             .unwrap_or_default(),
-                        thumbnail: text(item, "thumbnail"),
+                        thumbnail: text(item, "thumbnail").or_else(|| {
+                            item.get("thumbnails")?
+                                .as_array()?
+                                .last()
+                                .and_then(|t| text(t, "url"))
+                        }),
                         duration: item.get("duration").and_then(Value::as_f64),
                     })
                 })
@@ -102,7 +133,7 @@ pub fn parse_media_info(value: &Value, fallback_url: &str) -> Result<MediaInfo> 
         })
         .unwrap_or_default();
     let source_value = entries.and_then(|e| e.first()).unwrap_or(value);
-    let formats: Vec<MediaFormat> = source_value
+    let mut formats: Vec<MediaFormat> = source_value
         .get("formats")
         .and_then(Value::as_array)
         .map(|formats| {
@@ -141,6 +172,25 @@ pub fn parse_media_info(value: &Value, fallback_url: &str) -> Result<MediaInfo> 
                 .collect()
         })
         .unwrap_or_default();
+    // Flat collection entries omit per-video formats. Resolve each video's
+    // best video/audio formats when downloading, rather than reusing one ID.
+    if formats.is_empty() && is_playlist {
+        formats.push(MediaFormat {
+            id: "best".into(),
+            extension: "unknown".into(),
+            resolution: None,
+            width: None,
+            height: None,
+            fps: None,
+            video_codec: None,
+            audio_codec: None,
+            file_size: None,
+            protocol: None,
+            note: Some("Best available per item".into()),
+            has_video: true,
+            has_audio: true,
+        });
+    }
     let mut subtitles = Vec::new();
     collect_subtitles(value.get("subtitles"), false, &mut subtitles);
     collect_subtitles(value.get("automatic_captions"), true, &mut subtitles);
@@ -197,6 +247,41 @@ fn collect_subtitles(value: Option<&Value>, automatic: bool, output: &mut Vec<Su
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn flat_collections_keep_original_indices_and_work_without_formats() {
+        let value = serde_json::json!({"id":"list", "title":"Collection", "entries":[
+            {"id":"a","title":"First","url":"https://example.com/a","playlist_index":2},
+            null,
+            {"id":"b","title":"Third","url":"https://example.com/b"}
+        ]});
+        let info = parse_media_info(&value, "https://example.com/list").unwrap();
+        assert!(info.is_playlist);
+        assert_eq!(info.playlist_items.len(), 2);
+        assert_eq!(info.playlist_items[0].index, 2);
+        assert_eq!(info.playlist_items[1].index, 3);
+        assert_eq!(info.formats[0].id, "best");
+        assert!(info.formats[0].has_video && info.formats[0].has_audio);
+    }
+
+    #[test]
+    fn channel_roots_open_uploads_but_explicit_tabs_stay_intact() {
+        for root in [
+            "https://www.youtube.com/@maker",
+            "https://www.youtube.com/channel/UC123",
+            "https://www.youtube.com/c/maker",
+            "https://www.youtube.com/user/maker/",
+        ] {
+            assert!(channel_videos_url(root).ends_with("/videos"));
+        }
+        for url in [
+            "https://www.youtube.com/@maker/shorts",
+            "https://www.youtube.com/playlist?list=PL123",
+            "https://example.com/@maker",
+        ] {
+            assert_eq!(channel_videos_url(url), url);
+        }
+    }
+
     #[test]
     fn parses_formats_and_subtitles() {
         let value = serde_json::json!({"id":"abc","webpage_url":"https://example.com/v","title":"Example","uploader":"Maker","duration":61.0,"extractor_key":"Example","formats":[{"format_id":"137","ext":"mp4","height":1080,"vcodec":"avc1","acodec":"none","protocol":"https"},{"format_id":"140","ext":"m4a","vcodec":"none","acodec":"mp4a"}],"subtitles":{"en":[{"ext":"vtt"}]}});

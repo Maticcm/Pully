@@ -190,9 +190,23 @@ fn install_spotiflac_blocking(dir: &Path) -> Result<(), String> {
         })
         .ok_or("Python 3 was not found. Install Python 3, then try again.")?;
     let environment = dir.join("spotiflac-env");
+    // Reusing site-packages after recreating a venv with a different Python
+    // leaves incompatible native wheels behind. Rebuild this app-owned venv.
+    // Check its resolved location before Python clears the directory.
+    let tools = dir
+        .canonicalize()
+        .map_err(|e| format!("Could not resolve the tools folder: {e}"))?;
+    if environment.exists()
+        && environment
+            .canonicalize()
+            .map_err(|e| format!("Could not resolve the SpotiFLAC environment: {e}"))?
+            != tools.join("spotiflac-env")
+    {
+        return Err("The SpotiFLAC environment points outside Pully's tools folder.".into());
+    }
     let create = hidden_command(python)
         .args(*prefix)
-        .args(["-m", "venv"])
+        .args(["-m", "venv", "--clear"])
         .arg(&environment)
         .output()
         .map_err(|e| format!("Could not create the SpotiFLAC environment: {e}"))?;
@@ -229,10 +243,5 @@ fn install_spotiflac_blocking(dir: &Path) -> Result<(), String> {
     } else {
         environment.join("bin").join("spotiflac")
     };
-    if !crate::downloader::spotiflac_supports_lossless_contract(&executable) {
-        return Err(
-            "The installed SpotiFLAC CLI did not provide the required lossless options.".into(),
-        );
-    }
-    Ok(())
+    crate::downloader::verify_spotiflac_cli(&executable)
 }

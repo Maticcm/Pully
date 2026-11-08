@@ -61,6 +61,28 @@ fn format_selector(request: &DownloadRequest) -> String {
     }
 }
 
+fn playlist_selection_args(request: &DownloadRequest) -> Result<Vec<String>> {
+    match &request.playlist_indices {
+        None => Ok(Vec::new()),
+        Some(indices) if !request.is_playlist || indices.is_empty() || indices.contains(&0) => Err(
+            PullyError::Internal("Select at least one valid collection item.".into()),
+        ),
+        Some(indices) => {
+            let mut indices = indices.clone();
+            indices.sort_unstable();
+            indices.dedup();
+            Ok(vec![
+                "--playlist-items".into(),
+                indices
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ])
+        }
+    }
+}
+
 fn supports_thumbnail_embedding(request: &DownloadRequest) -> bool {
     match request.mode {
         DownloadMode::Video => matches!(request.output_format.as_str(), "mp4" | "mkv" | "mov"),
@@ -177,6 +199,12 @@ impl DownloadManager {
 
     pub fn enqueue(&self, app: AppHandle, request: DownloadRequest) -> Result<String> {
         let provider = extractors::route(&request.url)?;
+        playlist_selection_args(&request)?;
+        if request.playlist_indices.is_some() && provider == Provider::SpotiFlac {
+            return Err(PullyError::Unsupported(
+                "Track selection is unavailable for SpotiFLAC.".into(),
+            ));
+        }
         let paths = self.paths();
         if provider == Provider::SpotiFlac && paths.spotiflac.is_none() {
             return Err(PullyError::DependencyMissing(
@@ -408,6 +436,17 @@ impl DownloadManager {
         }
         if job.request.save_thumbnail {
             args.push("--write-thumbnail".into());
+        } else {
+            args.push("--no-write-thumbnail".into());
+            // Embedding still downloads an image. Keep it (including any
+            // playlist cover) inside this job's cleanup folder, so a failed
+            // embed or thumbnail conversion cannot leave an output sidecar.
+            args.extend([
+                "-P".into(),
+                format!("thumbnail:{}", temp_directory.to_string_lossy()),
+                "-P".into(),
+                format!("pl_thumbnail:{}", temp_directory.to_string_lossy()),
+            ]);
         }
         if job.request.download_subtitles || job.request.embed_subtitles {
             args.extend(["--write-subs".into(), "--write-auto-subs".into()]);
@@ -417,6 +456,13 @@ impl DownloadManager {
         }
         if crate::extractors::is_youtube_mix_url(&job.request.url) {
             args.push("--no-playlist".into());
+        }
+        match playlist_selection_args(&job.request) {
+            Ok(selection) => args.extend(selection),
+            Err(error) => {
+                self.fail(app, id, error.to_string());
+                return;
+            }
         }
         args.push("--".into());
         args.push(job.request.url.clone());
@@ -850,21 +896,41 @@ fn spotiflac_args(url: &str, output_directory: &Path) -> Vec<String> {
 }
 
 pub(crate) fn spotiflac_supports_lossless_contract(binary: &Path) -> bool {
-    crate::process::hidden_command(binary)
+    verify_spotiflac_cli(binary).is_ok()
+}
+
+pub(crate) fn verify_spotiflac_cli(binary: &Path) -> std::result::Result<(), String> {
+    let output = crate::process::hidden_command(binary)
         .arg("--help")
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .output()
-        .ok()
-        .map(|output| {
-            let text = format!(
-                "{}\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            spotiflac_help_supports_contract(&text)
-        })
-        .unwrap_or(false)
+        .map_err(|error| format!("Could not start SpotiFLAC: {error}"))?;
+    if !output.status.success() {
+        let details = String::from_utf8_lossy(&output.stderr);
+        let details = details
+            .lines()
+            .rev()
+            .take(4)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(format!(
+            "SpotiFLAC could not start. Try reinstalling it from Settings.\n{}",
+            details.chars().take(1200).collect::<String>()
+        ));
+    }
+    let help = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !spotiflac_help_supports_contract(&help) {
+        return Err("The installed SpotiFLAC CLI does not provide --quality, --registries, and --json. Install a compatible SpotiFLAC version.".into());
+    }
+    Ok(())
 }
 
 fn spotiflac_help_supports_contract(help: &str) -> bool {
@@ -1017,6 +1083,7 @@ mod tests {
             filename_template: Some("{title} [{id}].{ext}".into()),
             is_playlist: false,
             playlist_folder: true,
+            playlist_indices: None,
             existing_file_behavior: ExistingFileBehavior::Skip,
             embed_metadata: false,
             embed_thumbnail: false,
@@ -1024,6 +1091,26 @@ mod tests {
             download_subtitles: false,
             embed_subtitles: false,
         }
+    }
+
+    #[test]
+    fn collection_selection_passes_only_requested_indices() {
+        let mut selected = request(true);
+        selected.is_playlist = true;
+        selected.playlist_indices = Some(vec![5, 2, 5]);
+        assert_eq!(
+            playlist_selection_args(&selected).unwrap(),
+            vec!["--playlist-items", "2,5"]
+        );
+        selected.playlist_indices = Some(vec![]);
+        assert!(playlist_selection_args(&selected).is_err());
+        selected.playlist_indices = Some(vec![0]);
+        assert!(playlist_selection_args(&selected).is_err());
+        selected.playlist_indices = Some(vec![1]);
+        selected.is_playlist = false;
+        assert!(playlist_selection_args(&selected).is_err());
+        selected.playlist_indices = None;
+        assert!(playlist_selection_args(&selected).unwrap().is_empty());
     }
 
     fn audio_request(existing_file_behavior: ExistingFileBehavior) -> DownloadRequest {
@@ -1041,6 +1128,7 @@ mod tests {
             filename_template: Some("{creator} - {title}.{ext}".into()),
             is_playlist: false,
             playlist_folder: true,
+            playlist_indices: None,
             existing_file_behavior,
             embed_metadata: false,
             embed_thumbnail: false,
@@ -1066,6 +1154,32 @@ mod tests {
             .any(|pair| pair == ["--service", "ext:tidal-web"]));
         assert!(args.iter().any(|arg| arg == "--json"));
         assert!(!args.iter().any(|arg| arg == "info"));
+    }
+
+    #[test]
+    fn distinguishes_a_spotiflac_startup_crash_from_missing_options() {
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join(if cfg!(windows) {
+            "broken-cli.cmd"
+        } else {
+            "broken-cli"
+        });
+        #[cfg(windows)]
+        fs::write(
+            &binary,
+            "@echo off\r\necho --quality --registries --json\r\necho ModuleNotFoundError: _cffi_backend 1>&2\r\nexit /b 1\r\n",
+        )
+        .unwrap();
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::write(&binary, "#!/bin/sh\necho '--quality --registries --json'\necho 'ModuleNotFoundError: _cffi_backend' >&2\nexit 1\n").unwrap();
+            fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let error = verify_spotiflac_cli(&binary).unwrap_err();
+        assert!(error.contains("could not start"));
+        assert!(error.contains("_cffi_backend"));
+        assert!(!spotiflac_supports_lossless_contract(&binary));
     }
 
     #[test]

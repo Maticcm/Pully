@@ -30,6 +30,7 @@ pub struct SubtitleTrack {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistItem {
+    pub index: usize,
     pub id: String,
     pub title: String,
     pub url: String,
@@ -70,6 +71,8 @@ pub struct DownloadRequest {
     pub filename_template: Option<String>,
     pub is_playlist: bool,
     pub playlist_folder: bool,
+    #[serde(default)]
+    pub playlist_indices: Option<Vec<usize>>,
     pub existing_file_behavior: ExistingFileBehavior,
     pub embed_metadata: bool,
     pub embed_thumbnail: bool,

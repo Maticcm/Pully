@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, Clipboard, Link2 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AlertTriangle, ArrowDownToLine, AudioLines, Clipboard, Link2, Music2, Youtube } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { AnalyzeSkeleton } from "../components/AnalyzeSkeleton";
 import { DetectedTabs } from "../components/DetectedTabs";
 import { MediaCard } from "../components/MediaCard";
 import { interactionSpring, layoutSpring, pageTransition, pageVariants } from "../lib/animation";
 import type { DependencyInfo, DetectedTab, DownloadRequest, MediaInfo, SetupProgress } from "../types/media";
 import type { AppSettings } from "../types/settings";
+import type { UpdateStatus } from "../hooks/useAppUpdater";
 
 type Props = {
+  updateStatus?: UpdateStatus;
   url: string;
   analyzing: boolean;
   quickBusy: boolean;
@@ -33,90 +34,27 @@ type ComposerProps = Pick<Props, "url" | "analyzing" | "quickBusy" | "settings" 
   compact?: boolean;
 };
 
-const supportedSites = [
-  "YouTube",
-  "Spotify",
-  "SoundCloud",
-  "TikTok",
-  "Vimeo",
-  "Facebook",
-  "Instagram",
-  "Twitch",
-  "Reddit",
-  "X / Twitter",
-  "Dailymotion",
-  "Bandcamp",
-  "Mixcloud",
-  "Bilibili",
-  "Rumble",
-  "Kick",
-  "Streamable",
-  "Tumblr",
-  "Pinterest",
-  "LinkedIn",
-  "Flickr",
-  "Imgur",
-  "TED",
-  "BBC iPlayer",
-  "VK",
-];
-
-function TypewriterSites() {
-  const reduceMotion = useReducedMotion();
-  const [siteIndex, setSiteIndex] = useState(0);
-  const [characterCount, setCharacterCount] = useState(0);
-  const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    if (reduceMotion) return;
-
-    const site = supportedSites[siteIndex];
-    const delay = !deleting
-      ? characterCount < site.length ? 58 : 1100
-      : characterCount > 0 ? 30 : 180;
-
-    const timer = window.setTimeout(() => {
-      if (!deleting && characterCount < site.length) {
-        setCharacterCount((count) => count + 1);
-      } else if (!deleting) {
-        setDeleting(true);
-      } else if (characterCount > 0) {
-        setCharacterCount((count) => count - 1);
-      } else {
-        setDeleting(false);
-        setSiteIndex((index) => (index + 1) % supportedSites.length);
-      }
-    }, delay);
-
-    return () => window.clearTimeout(timer);
-  }, [characterCount, deleting, reduceMotion, siteIndex]);
-
-  const currentSite = supportedSites[siteIndex];
-  const visibleText = reduceMotion ? currentSite : currentSite.slice(0, characterCount);
-
-  return <>
-    <span className="typewriter-word" aria-hidden="true">
-      <span>{visibleText}</span><span className="typewriter-caret"/>
-    </span>
-    <span className="sr-only">Supported sites include {supportedSites.join(", ")}.</span>
-  </>;
-}
-
-function BrandHeading({ compact = false }: { compact?: boolean }) {
-  return <div className="w-full text-center">
-    <h1 className={`${compact ? "text-[28px]" : "text-[52px]"} font-bold leading-none tracking-[-.055em]`}>Pully</h1>
-    <p className={`${compact ? "mt-1.5 text-xs" : "mt-3 text-sm"} grid min-h-5 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center leading-5 text-black/45 dark:text-white/40`}>
-      <span aria-hidden="true"/>
-      <span>Download anything from</span>
-      <span className="typewriter-slot ml-1.5 justify-self-start"><TypewriterSites/></span>
-    </p>
+function BrandHeading({ compact = false, updateStatus }: { compact?: boolean; updateStatus?: UpdateStatus }) {
+  const updateAvailable = updateStatus && ["waiting", "downloading", "installing"].includes(updateStatus.phase);
+  return <div className={`home-heading ${compact ? "home-heading--compact" : ""}`}>
+    <div className="home-wordmark">
+      <span className="home-brand-mark" aria-hidden="true"><ArrowDownToLine strokeWidth={2.3}/></span>
+      <h1>Pully<span className="home-wordmark-dot" aria-hidden="true">.</span>{updateAvailable && <span className="home-update-dot" role="status" title={`Update ${updateStatus.version ?? ""} available`.replace("  ", " ")}><span className="sr-only">App update available{updateStatus.version ? `: version ${updateStatus.version}` : ""}.</span></span>}</h1>
+    </div>
+    <p className="home-heading-description">Videos, music, and playlists. Saved your way.</p>
+    {!compact && <div className="home-platforms" aria-label="Supported platforms include YouTube, Spotify, SoundCloud, and more">
+      <span><Youtube size={16} className="text-red-500" aria-hidden="true"/>YouTube</span>
+      <span><Music2 size={15} className="text-emerald-500" aria-hidden="true"/>Spotify</span>
+      <span><AudioLines size={16} className="text-orange-500" aria-hidden="true"/>SoundCloud</span>
+      <span className="home-platforms-more">+ more</span>
+    </div>}
   </div>;
 }
 
 function LinkComposer({ url, analyzing, quickBusy, settings, onUrlChange, onSubmit, onPaste, compact = false }: ComposerProps) {
   const busy = analyzing || quickBusy;
   const action = settings.quickMode ? (quickBusy ? "Queuing..." : "Download") : (analyzing ? "Pulling..." : "Pull");
-  const placeholder = settings.quickMode ? "Paste a link to download instantly..." : "Paste a link...";
+  const placeholder = settings.quickMode ? "Paste a link to download instantly..." : "Paste a video, playlist, or channel link...";
 
   return <motion.div layoutId="link-composer" transition={layoutSpring} className={`home-link-bar ${compact ? "" : "home-link-bar--landing"}`}>
     <Link2 className="shrink-0 text-black/30 dark:text-white/30" size={18}/>
@@ -144,20 +82,20 @@ export function HomePage(props: Props) {
   const hasDetectedTabs = settings.browserIntegrationEnabled && settings.browserShowTabs && browserTabs.length > 0;
   const workspace = Boolean(media) || analyzing || hasDetectedTabs || Boolean(error) || Boolean(dependencies && !dependencies.ready);
 
-  return <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition} className="mx-auto h-[calc(100vh-128px)] max-w-5xl overflow-hidden px-7 pb-6">
+  return <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition} className="mx-auto h-[calc(100vh-128px)] max-w-5xl scrollbar-hidden overflow-y-auto px-7 pb-6">
     <AnimatePresence mode="wait" initial={false}>
       {!workspace ? <motion.div key="landing" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={layoutSpring} className="flex h-full flex-col items-center justify-center pb-20">
-        <BrandHeading/>
-        <div className="mt-9 w-full max-w-3xl"><LinkComposer {...props}/></div>
+        <BrandHeading updateStatus={props.updateStatus}/>
+        <div className="mt-8 w-full max-w-3xl"><LinkComposer {...props}/></div>
       </motion.div> : <motion.div key="workspace" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={layoutSpring} className="h-full">
-        <div className="mb-4"><BrandHeading compact/></div>
+        <div className="mb-4"><BrandHeading compact updateStatus={props.updateStatus}/></div>
         <LinkComposer {...props} compact/>
         <AnimatePresence initial={false}>
           <SetupNotice {...props}/>
           {error && <motion.div layout initial={{ opacity: 0, height: 0, y: -3 }} animate={{ opacity: 1, height: "auto", y: 0 }} exit={{ opacity: 0, height: 0, y: -3 }} transition={layoutSpring} className="mt-3 overflow-hidden rounded-xl border border-red-500/15 bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</motion.div>}
         </AnimatePresence>
         <AnimatePresence mode="wait" initial={false}>
-          {analyzing ? <motion.div key="analyzing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }}><AnalyzeSkeleton/></motion.div> : media ? <motion.div layout key={media.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={layoutSpring} className="mt-4 min-h-0"><MediaCard media={media} settings={settings} busy={false} onDownload={props.onDownload}/></motion.div> : hasDetectedTabs ? <DetectedTabs key="detected-tabs" tabs={browserTabs} settings={settings} onAnalyze={props.onAnalyze} onQuickDownload={props.onQuickDownload}/> : null}
+          {analyzing ? <motion.div key="analyzing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }}><AnalyzeSkeleton/></motion.div> : media ? <motion.div layout="position" key={media.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={layoutSpring} className="mt-4 min-h-0"><MediaCard media={media} settings={settings} busy={false} onDownload={props.onDownload}/></motion.div> : hasDetectedTabs ? <DetectedTabs key="detected-tabs" tabs={browserTabs} settings={settings} onAnalyze={props.onAnalyze} onQuickDownload={props.onQuickDownload}/> : null}
         </AnimatePresence>
       </motion.div>}
     </AnimatePresence>
