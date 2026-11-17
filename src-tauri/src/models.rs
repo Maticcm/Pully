@@ -122,6 +122,8 @@ pub struct DownloadProgress {
     pub total_bytes: Option<u64>,
     pub speed: Option<String>,
     pub eta: Option<String>,
+    #[serde(default)]
+    pub phase: Option<String>,
     pub output_path: Option<String>,
     pub error: Option<String>,
 }

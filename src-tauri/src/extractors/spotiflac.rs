@@ -95,6 +95,7 @@ fn spotify_metadata(value: &str) -> Result<SpotifyMetadata> {
     let page = client
         .get(value)
         .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
         .ok()
         .and_then(|response| response.text().ok());
     let creator = page
@@ -122,20 +123,59 @@ fn spotify_metadata(value: &str) -> Result<SpotifyMetadata> {
 }
 
 fn meta_content(html: &str, property: &str) -> Option<String> {
-    for marker in [
-        format!("property=\"{property}\""),
-        format!("name=\"{property}\""),
-    ] {
-        let Some(start) = html.find(&marker) else {
+    for tag in html.split('<').skip(1) {
+        let Some(name) = tag.get(..4) else {
             continue;
         };
-        let Some(end) = html[start..].find('>') else {
+        if !name.eq_ignore_ascii_case("meta")
+            || !tag.as_bytes().get(4).is_some_and(u8::is_ascii_whitespace)
+        {
             continue;
-        };
-        let tag = &html[start..start + end];
-        if let Some(content_start) = tag.find("content=\"") {
-            let value = &tag[content_start + 9..];
-            return value.find('\"').map(|end| decode_html(&value[..end]));
+        }
+        let mut attributes = &tag[4..];
+        let mut matches = false;
+        let mut content = None;
+        while !attributes.is_empty() {
+            attributes = attributes.trim_start();
+            if attributes.starts_with(['>', '/']) {
+                break;
+            }
+            let end = attributes
+                .find(|c: char| c.is_ascii_whitespace() || matches!(c, '=' | '>' | '/'))
+                .unwrap_or(attributes.len());
+            if end == 0 {
+                break;
+            }
+            let name = &attributes[..end];
+            attributes = attributes[end..].trim_start();
+            if !attributes.starts_with('=') {
+                continue;
+            }
+            attributes = attributes[1..].trim_start();
+            let value;
+            if attributes.starts_with(['\'', '"']) {
+                let quote = attributes.as_bytes()[0] as char;
+                attributes = &attributes[1..];
+                let Some(end) = attributes.find(quote) else {
+                    break;
+                };
+                value = &attributes[..end];
+                attributes = &attributes[end + 1..];
+            } else {
+                let end = attributes
+                    .find(|c: char| c.is_ascii_whitespace() || c == '>')
+                    .unwrap_or(attributes.len());
+                value = &attributes[..end];
+                attributes = &attributes[end..];
+            }
+            if name.eq_ignore_ascii_case("property") || name.eq_ignore_ascii_case("name") {
+                matches |= value.eq_ignore_ascii_case(property);
+            } else if name.eq_ignore_ascii_case("content") && content.is_none() {
+                content = Some(value);
+            }
+        }
+        if matches && content.is_some() {
+            return content.map(decode_html);
         }
     }
     None
@@ -204,6 +244,51 @@ mod tests {
             Some("Seafret · Album · Song · 2016")
         );
         assert_eq!(meta_content(html, "music:duration").as_deref(), Some("230"));
+    }
+
+    #[test]
+    fn parses_reordered_and_differently_quoted_metadata() {
+        for html in [
+            r#"<meta content="Artist &amp; Guests" property="og:description">"#,
+            "<META CONTENT = 'Artist &amp; Guests' PROPERTY = 'og:description'>",
+            "<meta content='unrelated'><meta content='Artist &amp; Guests' name='og:description'>",
+        ] {
+            assert_eq!(
+                meta_content(html, "og:description").as_deref(),
+                Some("Artist & Guests")
+            );
+        }
+        assert_eq!(
+            meta_content("<meta content=230 name=music:duration>", "music:duration").as_deref(),
+            Some("230")
+        );
+        assert_eq!(
+            meta_content(
+                "<meta content='Artist > Guest' property='og:description'>",
+                "og:description"
+            )
+            .as_deref(),
+            Some("Artist > Guest")
+        );
+    }
+
+    #[test]
+    fn does_not_read_metadata_from_other_tags_or_attribute_values() {
+        assert!(meta_content(
+            r#"<div property="og:description" content="wrong">"#,
+            "og:description"
+        )
+        .is_none());
+        assert!(meta_content(
+            r#"<meta data-note='property="og:description"' content="wrong">"#,
+            "og:description"
+        )
+        .is_none());
+        assert!(meta_content(
+            "<meta property='og:description'><meta content='wrong'>",
+            "og:description"
+        )
+        .is_none());
     }
 
     #[test]

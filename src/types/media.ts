@@ -70,6 +70,7 @@ export type DownloadProgress = {
   totalBytes?: number;
   speed?: string;
   eta?: string;
+  phase?: string;
   outputPath?: string;
   error?: string;
 };

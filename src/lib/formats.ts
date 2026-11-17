@@ -64,20 +64,24 @@ export function buildQuickDownloadRequest(media: MediaInfo, settings: AppSetting
       embedSubtitles: settings.embedSubtitles && settings.quickModeDownloadSubtitles,
     };
   }
+  const isSpotify = media.source.toLowerCase() === "spotify";
+  const audioFormat = isSpotify && !["original", "flac"].includes(settings.quickModeAudioFormat)
+    ? "original"
+    : settings.quickModeAudioFormat;
   return {
     url: media.url,
     title: media.title,
     creator: media.creator,
     thumbnail: media.thumbnail,
     mode,
-    outputFormat: settings.quickModeAudioFormat,
+    outputFormat: audioFormat,
     outputDirectory: settings.downloadDirectory || undefined,
     filenameTemplate: settings.filenameTemplate,
     isPlaylist: media.isPlaylist,
     playlistFolder: settings.playlistFolder,
     existingFileBehavior: settings.existingFileBehavior,
     embedMetadata: settings.quickModeEmbedMetadata,
-    embedThumbnail: settings.quickModeEmbedThumbnail && media.source.toLowerCase() !== "spotify" && canEmbedThumbnail(mode, settings.quickModeAudioFormat),
+    embedThumbnail: settings.quickModeEmbedThumbnail && !isSpotify && canEmbedThumbnail(mode, audioFormat),
     saveThumbnail: settings.saveThumbnail,
     downloadSubtitles: settings.quickModeDownloadSubtitles,
     embedSubtitles: settings.embedSubtitles && settings.quickModeDownloadSubtitles,

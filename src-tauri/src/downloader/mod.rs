@@ -25,7 +25,7 @@ use crate::{
         DownloadMode, DownloadProgress, DownloadRequest, DownloadStatus, ExistingFileBehavior,
     },
 };
-use progress::parse_progress;
+use progress::{parse_progress, ProgressTracker, PLAN_TEMPLATE, PROGRESS_TEMPLATE};
 use spotiflac_protocol::{parse_event, parse_report, SpotiFlacEvent};
 
 #[derive(Clone)]
@@ -316,6 +316,7 @@ impl DownloadManager {
             total_bytes: None,
             speed: None,
             eta: None,
+            phase: None,
             output_path: None,
             error: None,
         };
@@ -478,7 +479,35 @@ impl DownloadManager {
             ExistingFileBehavior::Skip => "--no-overwrites",
             ExistingFileBehavior::Overwrite => "--force-overwrites",
         };
-        let mut args: Vec<String> = vec!["--ignore-config".into(), "--newline".into(), "--no-colors".into(), existing_file_arg.into(), "--windows-filenames".into(), "--ignore-errors".into(), "--extractor-retries".into(), "3".into(), "--retry-sleep".into(), "extractor:linear=0.5:1.5:0.5".into(), "--progress".into(), "--progress-template".into(), "download:PULLY_PROGRESS|%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress._speed_str)s|%(progress._eta_str)s".into(), "--progress-template".into(), "postprocess:PULLY_PROCESSING".into(), "--print".into(), "after_move:PULLY_FILE|%(filepath)s".into(), "-P".into(), directory.to_string_lossy().into_owned(), "-P".into(), format!("temp:{}", temp_directory.to_string_lossy()), "-o".into(), relative_template.to_string_lossy().into_owned()];
+        let mut args: Vec<String> = vec![
+            "--ignore-config".into(),
+            "--newline".into(),
+            "--no-colors".into(),
+            existing_file_arg.into(),
+            "--windows-filenames".into(),
+            "--ignore-errors".into(),
+            "--extractor-retries".into(),
+            "3".into(),
+            "--retry-sleep".into(),
+            "extractor:linear=0.5:1.5:0.5".into(),
+            "--progress".into(),
+            "--progress-delta".into(),
+            "0.25".into(),
+            "--progress-template".into(),
+            PROGRESS_TEMPLATE.into(),
+            "--progress-template".into(),
+            "postprocess:PULLY_PROCESSING".into(),
+            "--print".into(),
+            PLAN_TEMPLATE.into(),
+            "--print".into(),
+            "after_move:PULLY_FILE|%(filepath)s".into(),
+            "-P".into(),
+            directory.to_string_lossy().into_owned(),
+            "-P".into(),
+            format!("temp:{}", temp_directory.to_string_lossy()),
+            "-o".into(),
+            relative_template.to_string_lossy().into_owned(),
+        ];
         if job.archive.is_some() {
             args.extend([
                 "--print".into(),
@@ -590,6 +619,21 @@ impl DownloadManager {
                 return;
             }
         };
+        let _process_guard = match crate::process::ProcessTreeGuard::attach(&child) {
+            Ok(guard) => guard,
+            Err(error) => {
+                kill_process(child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+                cleanup_temp_directory(&temp_directory);
+                self.fail(
+                    app,
+                    id,
+                    format!("Could not safely start the download process: {error}"),
+                );
+                return;
+            }
+        };
         job.pid.store(child.id(), Ordering::SeqCst);
         // Cancellation can arrive after spawn but before the PID is published.
         if job.cancel.load(Ordering::SeqCst) {
@@ -616,6 +660,8 @@ impl DownloadManager {
         // Completed-with-a-warning instead of a flat Failed that would
         // hide the files that *did* download successfully.
         let mut files_completed = 0usize;
+        let mut progress_tracker = ProgressTracker::default();
+        let progress_started = std::time::Instant::now();
         if let Some(out) = stdout {
             for line in BufReader::new(out)
                 .lines()
@@ -624,7 +670,19 @@ impl DownloadManager {
                 if job.cancel.load(Ordering::Relaxed) {
                     break;
                 }
-                if let Some(value) = parse_progress(&line) {
+                if progress_tracker.begin(&line) {
+                    self.update(app, id, |p| {
+                        p.status = DownloadStatus::Downloading;
+                        p.percent = 0.0;
+                        p.speed = None;
+                        p.eta = None;
+                        p.phase = None;
+                        p.downloaded_bytes = None;
+                        p.total_bytes = None;
+                    });
+                } else if let Some(value) = parse_progress(&line)
+                    .and_then(|value| progress_tracker.update(value, progress_started.elapsed()))
+                {
                     self.update(app, id, |p| {
                         p.status = DownloadStatus::Downloading;
                         p.percent = value.percent;
@@ -632,6 +690,7 @@ impl DownloadManager {
                         p.total_bytes = value.total_bytes;
                         p.speed = value.speed;
                         p.eta = value.eta;
+                        p.phase = Some(value.phase);
                     });
                 } else if let Some(data) = line.strip_prefix("PULLY_SYNC|") {
                     let mut fields = data.splitn(3, '|');
@@ -653,7 +712,12 @@ impl DownloadManager {
                     files_completed += 1;
                     self.update(app, id, |p| p.output_path = Some(path.to_string()));
                 } else if line.starts_with("PULLY_PROCESSING") {
-                    self.update(app, id, |p| p.status = DownloadStatus::Processing);
+                    self.update(app, id, |p| {
+                        p.status = DownloadStatus::Processing;
+                        p.percent = p.percent.max(99.0);
+                        p.speed = None;
+                        p.eta = None;
+                    });
                 }
             }
         }
@@ -1034,6 +1098,21 @@ impl DownloadManager {
             Err(e) => {
                 cleanup_temp_directory(&temp_directory);
                 self.fail(app, id, format!("Could not start SpotiFLAC: {e}"));
+                return;
+            }
+        };
+        let _process_guard = match crate::process::ProcessTreeGuard::attach(&child) {
+            Ok(guard) => guard,
+            Err(error) => {
+                kill_process(child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+                cleanup_temp_directory(&temp_directory);
+                self.fail(
+                    app,
+                    id,
+                    format!("Could not safely start SpotiFLAC: {error}"),
+                );
                 return;
             }
         };
@@ -1925,23 +2004,50 @@ fn place_finished_track(
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).map_err(|e| PullyError::PermissionDenied(e.to_string()))?;
     }
-    if destination.exists() {
-        match request.existing_file_behavior {
-            ExistingFileBehavior::Skip => {
-                let _ = fs::remove_file(&source);
-                return Ok(None);
-            }
-            ExistingFileBehavior::Overwrite => {
-                fs::remove_file(&destination)
-                    .map_err(|e| PullyError::PermissionDenied(e.to_string()))?;
-            }
+    commit_downloaded_track(&source, &destination, &request.existing_file_behavior)
+}
+
+/// Stage on the destination volume before publishing. A failed copy or rename
+/// must leave the previous download intact, including across different drives.
+fn commit_downloaded_track(
+    source: &Path,
+    destination: &Path,
+    behavior: &ExistingFileBehavior,
+) -> Result<Option<PathBuf>> {
+    if matches!(behavior, ExistingFileBehavior::Skip) && destination.exists() {
+        let _ = fs::remove_file(source);
+        return Ok(None);
+    }
+    let parent = destination.parent().ok_or_else(|| {
+        PullyError::Internal("The download destination has no parent directory.".into())
+    })?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| PullyError::PermissionDenied(e.to_string()))?;
+    let mut input =
+        fs::File::open(source).map_err(|e| PullyError::PermissionDenied(e.to_string()))?;
+    std::io::copy(&mut input, staged.as_file_mut())
+        .and_then(|_| staged.as_file().sync_all())
+        .map_err(|e| PullyError::PermissionDenied(e.to_string()))?;
+    // Close the source before removing it on Windows.
+    drop(input);
+    let published = match behavior {
+        ExistingFileBehavior::Overwrite => staged.persist(destination),
+        ExistingFileBehavior::Skip => staged.persist_noclobber(destination),
+    };
+    match published {
+        Ok(_) => {
+            let _ = fs::remove_file(source);
+            Ok(Some(destination.to_path_buf()))
         }
+        Err(error)
+            if matches!(behavior, ExistingFileBehavior::Skip)
+                && error.error.kind() == std::io::ErrorKind::AlreadyExists =>
+        {
+            let _ = fs::remove_file(source);
+            Ok(None)
+        }
+        Err(error) => Err(PullyError::PermissionDenied(error.error.to_string())),
     }
-    if fs::rename(&source, &destination).is_err() {
-        fs::copy(&source, &destination).map_err(|e| PullyError::PermissionDenied(e.to_string()))?;
-        let _ = fs::remove_file(&source);
-    }
-    Ok(Some(destination))
 }
 
 fn cleanup_temp_directory(path: &std::path::Path) {
@@ -2376,6 +2482,44 @@ mod tests {
         .unwrap();
         assert!(placed.is_some());
         assert_eq!(fs::read(&existing).unwrap(), b"fLaC new");
+    }
+
+    #[test]
+    fn failed_replacement_preserves_the_previous_track() {
+        let dir = tempfile::tempdir().unwrap();
+        let existing = dir.path().join("song.flac");
+        fs::write(&existing, b"previous download").unwrap();
+        assert!(commit_downloaded_track(
+            &dir.path().join("missing-source.flac"),
+            &existing,
+            &ExistingFileBehavior::Overwrite,
+        )
+        .is_err());
+        assert_eq!(fs::read(&existing).unwrap(), b"previous download");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locked_destination_preserves_both_tracks_and_removes_staging_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("song.flac");
+        let source = dir.path().join("source.flac");
+        fs::write(&destination, b"old").unwrap();
+        fs::write(&source, b"new").unwrap();
+        let _lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&destination)
+            .unwrap();
+        assert!(
+            commit_downloaded_track(&source, &destination, &ExistingFileBehavior::Overwrite)
+                .is_err()
+        );
+        assert_eq!(fs::read(&destination).unwrap(), b"old");
+        assert_eq!(fs::read(&source).unwrap(), b"new");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 
     #[test]

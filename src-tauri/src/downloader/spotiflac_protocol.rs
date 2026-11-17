@@ -59,8 +59,27 @@ pub struct TrackRecord {
 }
 
 pub fn parse_report(lines: &[String]) -> Option<RunReport> {
-    let report: RunReport = serde_json::from_str(&lines.join("\n")).ok()?;
-    (report.schema_version == 1).then_some(report)
+    let output = lines.join("\n");
+    // SpotiFLAC 5.0.6 also attaches its logging handler to stdout, so
+    // warnings from the resolver or extensions can surround the JSON report.
+    // Decode a complete document instead of requiring stdout to be only JSON.
+    let mut offset = 0;
+    for line in output.split_inclusive('\n') {
+        let candidate = line.trim_start_matches('\u{feff}').trim_start();
+        if candidate.starts_with('{') {
+            let start = offset + line.len() - candidate.len();
+            let mut documents = serde_json::Deserializer::from_str(&output[start..])
+                .into_iter::<serde_json::Value>();
+            if let Some(Ok(value)) = documents.next() {
+                if value.get("schema_version").is_some() {
+                    let report: RunReport = serde_json::from_value(value).ok()?;
+                    return (report.schema_version == 1).then_some(report);
+                }
+            }
+        }
+        offset += line.len();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -73,6 +92,51 @@ mod tests {
         let report = parse_report(&lines).unwrap();
         assert_eq!(report.tracks[0].status, "failed");
         assert_eq!(report.tracks[0].error.as_deref(), Some("unavailable"));
+    }
+
+    #[test]
+    fn parses_report_surrounded_by_provider_logs() {
+        let lines = [
+            "WARNING: provider request failed; retrying",
+            "extension output: {not JSON}",
+            "{",
+            r#"  "schema_version": 1,"#,
+            r#"  "tracks": [{"id":"abc","title":"Song {live}","artists":"Artist","status":"downloaded","file_path":"C:\\tmp\\song.flac","error":null}]"#,
+            "}",
+            "INFO: finished",
+        ].map(str::to_string);
+        let report = parse_report(&lines).unwrap();
+        assert_eq!(report.tracks[0].title, "Song {live}");
+        assert_eq!(report.tracks[0].status, "downloaded");
+        assert_eq!(
+            report.tracks[0].file_path.as_deref(),
+            Some(r"C:\tmp\song.flac")
+        );
+    }
+
+    #[test]
+    fn parses_compact_report_after_unrelated_json() {
+        let lines = [
+            r#"{"message":"provider initialized"}"#,
+            "\u{feff}  {\"schema_version\":1,\"tracks\":[]}",
+        ]
+        .map(str::to_string);
+        assert!(parse_report(&lines).unwrap().tracks.is_empty());
+    }
+
+    #[test]
+    fn rejects_unsupported_or_malformed_reports_even_with_logs() {
+        for document in [
+            r#"{"schema_version":2,"tracks":[]}"#,
+            r#"{"schema_version":1,"tracks":[{"status":"downloaded"}]}"#,
+            r#"{"schema_version":1,"tracks":[]"#,
+        ] {
+            let lines = [
+                "WARNING: provider message".to_string(),
+                document.to_string(),
+            ];
+            assert!(parse_report(&lines).is_none());
+        }
     }
 
     #[test]
